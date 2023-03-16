@@ -1,10 +1,11 @@
 import os
-os.environ['OMP_NUM_THREADS'] = '1'
 import firedrake as df
-from firedrake.petsc import PETSc
 import numpy as np
 import time
-import pickle
+
+from firedrake.petsc import PETSc
+
+os.environ['OMP_NUM_THREADS'] = '1'
 
 def full_quad(order):
     points,weights = np.polynomial.legendre.leggauss(order)
@@ -56,13 +57,28 @@ class VerticalIntegrator(object):
         return w*f(s)
 
     def intz(self,f):
-        return sum([self.integral_term(f,s,w) for s,w in zip(self.points,self.weights)])  
+        return sum([self.integral_term(f,s,w) 
+                    for s,w in zip(self.points,self.weights)])  
 
 class CoupledModel:
 
-    def __init__(self,mesh,velocity_function_space='MTW',periodic=False,sia=False,ssa=False,sliding_law='linear',vel_scale=100,thk_scale=1e3,len_scale=1e4,beta_scale=1e3,time_scale=1,pressure_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-8,thklim=1e-3,theta=1.0,alpha=0,p=4,c=0.7,z_sea=-1000,membrane_degree=2,shear_degree=3,mms=False,flux_type='lax-friedrichs',calve=False):
-
-        self.mms = mms
+    def __init__(
+            self, mesh,
+            velocity_function_space='MTW',
+            periodic=False,
+            sia=False, ssa=False,
+            sliding_law='linear',
+            vel_scale=100, thk_scale=1e3,
+            len_scale=1e4, beta_scale=1e3,
+            time_scale=1, pressure_scale=1,
+            g=9.81, rho_i=917., rho_w=1000.0,
+            n=3.0, A=1e-16, eps_reg=1e-8,
+            thklim=1e-3, theta=1.0, alpha=0,
+            p=4, c=0.7, z_sea=-1000,
+            membrane_degree=2, shear_degree=3,
+            flux_type='lax-friedrichs',
+            calve=False):
+            
         self.mesh = mesh
         nhat = df.FacetNormal(mesh)
 
@@ -71,7 +87,8 @@ class CoupledModel:
         if velocity_function_space=='MTW':
             E_vel = self.E_vel = df.FiniteElement('MTW',mesh.ufl_cell(),3)
         elif velocity_function_space=='RT' or velocity_function_space=='BDM':
-            E_vel = self.E_vel = df.FiniteElement(velocity_function_space,mesh.ufl_cell(),1)
+            E_vel = self.E_vel = df.FiniteElement(velocity_function_space,
+                                                  mesh.ufl_cell(),1)
         else:
             print('Unsupported Element')
 
@@ -108,10 +125,16 @@ class CoupledModel:
         beta_scale = self.beta_scale = df.Constant(beta_scale)
         time_scale = self.time_scale = df.Constant(time_scale) 
 
-        eta_star = self.eta_star = df.Constant(A**(-1./n)*(vel_scale/thk_scale)**((1-n)/n))
+        eta_star = self.eta_star = df.Constant(A**(-1./n)
+                                               * (vel_scale/thk_scale)**((1-n)/n))
+
         delta = self.delta = df.Constant(thk_scale/len_scale)
+
         gamma = self.gamma = df.Constant(beta_scale*thk_scale/eta_star)
-        omega = self.omega = df.Constant(rho_i*g*thk_scale**3/(eta_star*len_scale*vel_scale))
+
+        omega = self.omega = df.Constant(rho_i*g*thk_scale**3
+                                         / (eta_star*len_scale*vel_scale))
+
         zeta = self.zeta = df.Constant(time_scale*vel_scale/len_scale)
 
         if sia:
@@ -139,8 +162,8 @@ class CoupledModel:
         Chi = df.TestFunction(Q_grd)
         dS = df.TrialFunction(Q_grd)
 
-        Ubar0 = self.Ubar0 = df.Function(Q_vel)
-        Udef0 = self.Udef0 = df.Function(Q_vel)
+        self.Ubar0 = df.Function(Q_vel)
+        self.Udef0 = df.Function(Q_vel)
         H0 = self.H0 = df.Function(Q_thk,name='H0')
         B = self.B = df.Function(Q_thk,name='B')
 
@@ -160,10 +183,8 @@ class CoupledModel:
 
         S = self.S = Bhat + H
         S0 = Bhat + H0
-        S_i = Bhat + H_i
         
         Smid = theta*S + (1-theta)*S0
-        Smid_i = theta*S_i + (1-theta)*S0
 
         self.F_U = F_U = df.Function(Q_vel)
         self.F_H = F_H = df.Function(Q_thk)
@@ -205,18 +226,22 @@ class CoupledModel:
                              [delta*phi_y(s)*nhat[0],delta*phi_y(s)*nhat[1]]])
 
         def eps_membrane(s):
-            return np.array([[2*delta*u.dx(s,0) + delta*v.dx(s,1), 0.5*delta*u.dx(s,1) + 0.5*delta*v.dx(s,0)],
-                             [0.5*delta*u.dx(s,1) + 0.5*delta*v.dx(s,0), delta*u.dx(s,0) + 2*delta*v.dx(s,1)]])
+            return np.array([[2*delta*u.dx(s,0) + delta*v.dx(s,1), 
+                              0.5*delta*u.dx(s,1) + 0.5*delta*v.dx(s,0)],
+                             [0.5*delta*u.dx(s,1) + 0.5*delta*v.dx(s,0),
+                              delta*u.dx(s,0) + 2*delta*v.dx(s,1)]])
 
         def eps_shear(s):
             return np.array([[0.5*u.dz(s)],
                             [0.5*v.dz(s)]])
 
         def membrane_form(s):
-            return 2*eta(s)*(eps_membrane(s)*phi_grad_membrane(s)).sum()*Hmid_i*df.dx(degree=9)
+            return (2*eta(s)*(eps_membrane(s)
+                    * phi_grad_membrane(s)).sum()*Hmid_i*df.dx(degree=9))
 
         def shear_form(s):
-            return 2*eta(s)*(eps_shear(s)*phi_grad_shear(s)).sum()*Hmid_i*df.dx(degree=9)
+            return (2*eta(s)*(eps_shear(s)
+                    * phi_grad_shear(s)).sum()*Hmid_i*df.dx(degree=9))
 
         def membrane_boundary_form_nopen(s):
             un = u(s)*nhat[0] + v(s)*nhat[1]
@@ -229,16 +254,27 @@ class CoupledModel:
             return s*omega*Hmid_i*(phi_x(s)*nhat[0] + phi_y(s)*nhat[1])*df.ds
 
         if ssa:
-            membrane_stress = -vi_x.intz(membrane_form) - vi_x.intz(membrane_boundary_form_nopen)
+            membrane_stress = -(vi_x.intz(membrane_form) 
+                                + vi_x.intz(membrane_boundary_form_nopen))
         else:
-            membrane_stress = -vi_x.intz(membrane_form) - vi_z.intz(shear_form) - vi_x.intz(membrane_boundary_form_nopen)
+            membrane_stress = -(vi_x.intz(membrane_form) 
+                                + vi_z.intz(shear_form) 
+                                + vi_x.intz(membrane_boundary_form_nopen))
         if sliding_law == 'linear':
             basal_stress = -gamma*beta2*df.dot(U_b,Phi_b)*df.dx
         elif sliding_law == 'Budd':
-            self.N = df.min_value(c*Hmid_i + df.Constant(1e-2),Hmid_i-rho_w/rho_i*(z_sea - Bhat)) + df.Constant(1e-4)
+            self.N = (df.min_value(c*Hmid_i + df.Constant(1e-2),
+                          Hmid_i-rho_w/rho_i*(z_sea - Bhat)) 
+                          + df.Constant(1e-4))
             basal_stress = -gamma*beta2*self.N*df.dot(U_b,Phi_b)*df.dx
 
-        driving_stress = omega*Hmid*df.dot(S_grad_lin,Phibar)*df.dx - omega*df.div(Phibar*Hmid)*(Bhat - S_lin)*df.dx - omega*df.div(Phibar*Hmid_i)*Hmid*df.dx + omega*df.jump(Phibar*Hmid,nhat)*df.avg(Bhat - S_lin)*df.dS + omega*df.jump(Phibar*Hmid_i,nhat)*df.avg(Hmid)*df.dS + omega*df.dot(Phibar*Hmid,nhat)*(Bhat - S_lin)*df.ds + omega*df.dot(Phibar*Hmid_i,nhat)*(Hmid)*df.ds
+        driving_stress = (omega*Hmid*df.dot(S_grad_lin,Phibar)*df.dx 
+                          - omega*df.div(Phibar*Hmid)*(Bhat - S_lin)*df.dx 
+                          - omega*df.div(Phibar*Hmid_i)*Hmid*df.dx 
+                          + omega*df.jump(Phibar*Hmid,nhat)*df.avg(Bhat - S_lin)*df.dS 
+                          + omega*df.jump(Phibar*Hmid_i,nhat)*df.avg(Hmid)*df.dS 
+                          + omega*df.dot(Phibar*Hmid,nhat)*(Bhat - S_lin)*df.ds 
+                          + omega*df.dot(Phibar*Hmid_i,nhat)*(Hmid)*df.ds)
 
         R_stress = membrane_stress + basal_stress - driving_stress 
 
@@ -249,34 +285,30 @@ class CoupledModel:
 
         H_avg = 0.5*(Hmid_i('+') + Hmid_i('-'))
         H_jump = Hmid('+')*nhat('+') + Hmid('-')*nhat('-')
-
-        xsi_avg = 0.5*(xsi('+') + xsi('-'))
         xsi_jump = xsi('+')*nhat('+') + xsi('-')*nhat('-')
 
-        uvec_i = df.as_vector([ubar_i,vbar_i])
-        unorm_i = df.dot(uvec_i,uvec_i)**0.5
+        unorm_i = df.dot(Ubar_i,Ubar_i)**0.5
 
-        uvec = Ubar
-        unorm = df.dot(uvec,uvec)**0.5
 
         # Lax-Friederichs flux
         if flux_type=='centered':
-            uH = df.avg(uvec)*H_avg
+            uH = df.avg(Ubar)*H_avg
 
         elif flux_type=='lax-friedrichs':
-            uH = df.avg(uvec)*H_avg + df.Constant(0.5)*df.avg(unorm_i)*H_jump
+            uH = df.avg(Ubar)*H_avg + df.Constant(0.5)*df.avg(unorm_i)*H_jump
 
         elif flux_type=='upwind':
-            uH = df.avg(uvec)*H_avg + 0.5*abs(df.dot(df.avg(uvec_i),nhat('+')))*H_jump
+            uH = df.avg(Ubar)*H_avg + 0.5*abs(df.dot(df.avg(Ubar_i),nhat('+')))*H_jump
 
         else:
             print('Invalid flux')
 
-        eps = df.Constant(1e-2)
-        R_transport = ((H - H0)/dt - adot)*xsi*df.dx + zeta*df.dot(uH,xsi_jump)*df.dS# + zeta*df.dot(uvec*df.Constant(1e-3),nhat)*xsi*df.ds
+        R_transport = ((H - H0)/dt - adot)*xsi*df.dx + zeta*df.dot(uH,xsi_jump)*df.dS
 
         if calve:
-            floating = df.conditional(df.lt(Hmid_i, self.rho_w/self.rho_i*(self.z_sea - self.B)),df.Constant(1.0),df.Constant(0.0))
+            floating = df.conditional(
+                df.lt(Hmid_i, self.rho_w/self.rho_i*(self.z_sea - self.B)),
+                df.Constant(1.0),df.Constant(0.0))
             R_transport += xsi*floating*df.Constant(10.0)*H*df.dx
 
         R_transport -= xsi*F_H*df.dx
@@ -285,8 +317,15 @@ class CoupledModel:
 
         R_lin = self.R_lin = df.replace(R,{W:dW})
 
-        R_S = df.dot(Chi,dS)*df.dx - df.dot(Chi,S_grad_lin)*df.dx + df.div(Chi)*(Smid - S_lin)*df.dx - df.dot(Chi,nhat)*(Smid - S_lin)*df.ds 
-        R_B = df.dot(Chi,dS)*df.dx - df.dot(Chi,B_grad_lin)*df.dx + df.div(Chi)*(Bhat - B_lin)*df.dx - df.dot(Chi,nhat)*(Bhat - B_lin)*df.ds
+        R_S = (df.dot(Chi,dS)*df.dx 
+              - df.dot(Chi,S_grad_lin)*df.dx 
+              + df.div(Chi)*(Smid - S_lin)*df.dx 
+              - df.dot(Chi,nhat)*(Smid - S_lin)*df.ds)
+
+        R_B = (df.dot(Chi,dS)*df.dx 
+              - df.dot(Chi,B_grad_lin)*df.dx 
+              + df.div(Chi)*(Bhat - B_lin)*df.dx
+              - df.dot(Chi,nhat)*(Bhat - B_lin)*df.ds)
 
         coupled_problem = df.LinearVariationalProblem(df.lhs(R_lin),df.rhs(R_lin),W)
 
@@ -305,18 +344,34 @@ class CoupledModel:
                               #"pc_type": "ilu"}#,  
                               #"pc_factor_mat_solver_type": "mumps"} 
 
-        self.coupled_solver = df.LinearVariationalSolver(coupled_problem,solver_parameters=coupled_parameters)
+        self.coupled_solver = df.LinearVariationalSolver(
+            coupled_problem,
+            solver_parameters=coupled_parameters)
         
         projection_parameters = {'ksp_type':'cg','mat_type':'matfree'}
         S_grad_problem = df.LinearVariationalProblem(df.lhs(R_S),df.rhs(R_S),S_grad)
-        self.S_grad_solver = df.LinearVariationalSolver(S_grad_problem,solver_parameters=projection_parameters)
+        self.S_grad_solver = df.LinearVariationalSolver(
+            S_grad_problem,
+            solver_parameters=projection_parameters)
 
         B_grad_problem = df.LinearVariationalProblem(df.lhs(R_B),df.rhs(R_B),B_grad)
-        self.B_grad_solver = df.LinearVariationalSolver(B_grad_problem,solver_parameters=projection_parameters)
+        self.B_grad_solver = df.LinearVariationalSolver(
+            B_grad_problem,
+            solver_parameters=projection_parameters)
 
         self.H_temp = df.Function(self.Q_thk)
 
-    def step(self,t,dt,picard_tol=1e-6,max_iter=50,momentum=0.0,error_on_nonconvergence=False,convergence_norm='linf',calve=False,forcing=None):
+    def step(
+            self,
+            t,
+            dt,
+            picard_tol=1e-6,
+            max_iter=50,
+            momentum=0.0,
+            error_on_nonconvergence=False,
+            convergence_norm='linf',
+            calve=False,
+            forcing=None):
 
         self.W.sub(0).assign(self.Ubar0)
         self.W.sub(1).assign(self.Udef0)
@@ -345,7 +400,9 @@ class CoupledModel:
                     with self.W.dat.vec_ro as w:
                         eps = abs(w_i - w).max()[1]
             else:
-                eps = np.sqrt(df.assemble((self.W_i.sub(2) - self.W.sub(2))**2*df.dx))/self.area
+                eps = (np.sqrt(
+                       df.assemble((self.W_i.sub(2) - self.W.sub(2))**2*df.dx))
+                       / self.area)
 
             PETSc.Sys.Print(i,eps,time.time()-t_)
 
