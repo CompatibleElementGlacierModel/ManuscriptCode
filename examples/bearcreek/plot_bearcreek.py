@@ -4,14 +4,13 @@ import matplotlib.pyplot as plt
 import pickle
 
 from pysheds.grid import Grid
-from matplotlib.colors import ListedColormap,LogNorm
+from matplotlib.colors import ListedColormap,LogNorm,LightSource
 
 blues = plt.cm.get_cmap('Blues', 256)
 newcolors = blues(np.linspace(0, 1, 256))
 newcolors[:20, 3] = 0.0
 newcmp = ListedColormap(newcolors)
 
-from matplotlib.colors import LightSource
 
 buildup_directory = '../../results/bearcreek_slide/'
 dambreak_directory = '../../results/bearcreek_slide_dam_break_hacking/'

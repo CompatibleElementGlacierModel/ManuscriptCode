@@ -1,11 +1,11 @@
 import os
+os.environ['OMP_NUM_THREADS'] = '1'
 import firedrake as df
 import numpy as np
 import time
 
 from firedrake.petsc import PETSc
 
-os.environ['OMP_NUM_THREADS'] = '1'
 
 def full_quad(order):
     points,weights = np.polynomial.legendre.leggauss(order)
@@ -61,18 +61,17 @@ class VerticalIntegrator(object):
                     for s,w in zip(self.points,self.weights)])  
 
 class CoupledModel:
-
     def __init__(
             self, mesh,
             velocity_function_space='MTW',
-            periodic=False,
+            solver_type='direct',
             sia=False, ssa=False,
             sliding_law='linear',
             vel_scale=100, thk_scale=1e3,
             len_scale=1e4, beta_scale=1e3,
             time_scale=1, pressure_scale=1,
             g=9.81, rho_i=917., rho_w=1000.0,
-            n=3.0, A=1e-16, eps_reg=1e-8,
+            n=3.0, A=1e-16, eps_reg=1e-6,
             thklim=1e-3, theta=1.0, alpha=0,
             p=4, c=0.7, z_sea=-1000,
             membrane_degree=2, shear_degree=3,
@@ -260,6 +259,7 @@ class CoupledModel:
             membrane_stress = -(vi_x.intz(membrane_form) 
                                 + vi_z.intz(shear_form) 
                                 + vi_x.intz(membrane_boundary_form_nopen))
+
         if sliding_law == 'linear':
             basal_stress = -gamma*beta2*df.dot(U_b,Phi_b)*df.dx
         elif sliding_law == 'Budd':
@@ -276,10 +276,11 @@ class CoupledModel:
                           + omega*df.dot(Phibar*Hmid,nhat)*(Bhat - S_lin)*df.ds 
                           + omega*df.dot(Phibar*Hmid_i,nhat)*(Hmid)*df.ds)
 
-        R_stress = membrane_stress + basal_stress - driving_stress 
+        forcing_stress = df.dot(Phibar,F_U)*df.dx
 
-        R_stress -= df.dot(Phibar,F_U)*df.dx
+        R_stress = membrane_stress + basal_stress - driving_stress - forcing_stress
 
+        # This ensures non-singularity when SSA simplification is used.
         if ssa:
             R_stress += df.dot(Phidef,Udef)*df.dx
 
@@ -303,15 +304,13 @@ class CoupledModel:
         else:
             print('Invalid flux')
 
-        R_transport = ((H - H0)/dt - adot)*xsi*df.dx + zeta*df.dot(uH,xsi_jump)*df.dS
+        R_transport = ((H - H0)/dt - adot)*xsi*df.dx + zeta*df.dot(uH,xsi_jump)*df.dS - xsi*F_H*df.dx
 
         if calve:
             floating = df.conditional(
                 df.lt(Hmid_i, self.rho_w/self.rho_i*(self.z_sea - self.B)),
                 df.Constant(1.0),df.Constant(0.0))
             R_transport += xsi*floating*df.Constant(10.0)*H*df.dx
-
-        R_transport -= xsi*F_H*df.dx
 
         R = R_stress + R_transport
 
@@ -329,20 +328,14 @@ class CoupledModel:
 
         coupled_problem = df.LinearVariationalProblem(df.lhs(R_lin),df.rhs(R_lin),W)
 
-        coupled_parameters = {"ksp_type": "preonly",#,'ksp_view': None }#,
-                              "pmat_type":"aij",
-                              "pc_type": "lu",  
-                              "pc_factor_mat_solver_type": "mumps"} 
-
-
-        #coupled_parameters = {'pc_type': 'bjacobi',
-                              #'ksp_initial_guess_nonzero': True,
-                              #'mat_type':'aij',
-                              #'pc_hypre_type': 'boomeramg',
-       #                       "ksp_rtol":1e-5}
-                              #"mat_type":"block",
-                              #"pc_type": "ilu"}#,  
-                              #"pc_factor_mat_solver_type": "mumps"} 
+        if solver_type=='direct':
+            coupled_parameters = {"ksp_type": "preonly",
+                                  "pmat_type":"aij",
+                                  "pc_type": "lu",  
+                                  "pc_factor_mat_solver_type": "mumps"} 
+        else:
+            coupled_parameters = {'pc_type': 'bjacobi',
+                                  "ksp_rtol":1e-5}
 
         self.coupled_solver = df.LinearVariationalSolver(
             coupled_problem,
@@ -370,7 +363,6 @@ class CoupledModel:
             momentum=0.0,
             error_on_nonconvergence=False,
             convergence_norm='linf',
-            calve=False,
             forcing=None):
 
         self.W.sub(0).assign(self.Ubar0)
@@ -380,7 +372,7 @@ class CoupledModel:
         self.W_i.assign(self.W)
         self.dt.assign(dt)
 
-        eps=1.0
+        eps = 1.0
         i = 0
         
         self.t.assign(t + self.theta(0)*dt)
@@ -394,7 +386,6 @@ class CoupledModel:
             self.H_temp.interpolate(df.max_value(self.W.sub(2),self.thklim))
             self.W.sub(2).assign(self.H_temp)
             
-
             if convergence_norm=='linf':
                 with self.W_i.dat.vec_ro as w_i:
                     with self.W.dat.vec_ro as w:
@@ -410,13 +401,10 @@ class CoupledModel:
             self.W_i.assign((1-momentum)*self.W + momentum*self.W_i)
             i+=1
 
-
-
         if i==max_iter and eps>picard_tol:
             converged=False
         else:
             converged=True
-
 
         if error_on_nonconvergence and not converged:
             return converged
