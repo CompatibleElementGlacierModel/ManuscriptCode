@@ -1,8 +1,17 @@
+"""
+This module contains base physics and helper classes for solving hybrid, SSA, and SIA
+approximations to isothermal Stokes' flow for ice sheets using either 
+Raviart-Thomas or Mardal-Tai-Winther finite elements for velocities, 
+and DG0 elements for ice thickness.  This code is experimental and is still
+lacking a few key elements, including full support for boundary conditions.
+"""
+
 import os
 os.environ['OMP_NUM_THREADS'] = '1'
 import firedrake as df
 import numpy as np
 import time
+import torch
 
 from firedrake.petsc import PETSc
 
@@ -141,8 +150,8 @@ class CoupledModel:
 
         W = self.W = df.Function(V)
         W_i = self.W_i = df.Function(V)
-        Psi = df.TestFunction(V)
-        dW = df.TrialFunction(V)
+        Psi = self.Psi = df.TestFunction(V)
+        dW = self.dW = df.TrialFunction(V)
 
         Ubar,Udef,H = df.split(W)
         ubar,vbar = Ubar
@@ -312,7 +321,7 @@ class CoupledModel:
                 df.Constant(1.0),df.Constant(0.0))
             R_transport += xsi*floating*df.Constant(10.0)*H*df.dx
 
-        R = R_stress + R_transport
+        R = self.R = R_stress + R_transport
 
         R_lin = self.R_lin = df.replace(R,{W:dW})
 
@@ -363,7 +372,9 @@ class CoupledModel:
             momentum=0.0,
             error_on_nonconvergence=False,
             convergence_norm='linf',
-            forcing=None):
+            forcing=None,
+            update=True,
+            enforce_positivity=True):
 
         self.W.sub(0).assign(self.Ubar0)
         self.W.sub(1).assign(self.Udef0)
@@ -383,8 +394,9 @@ class CoupledModel:
             self.S_grad_solver.solve()
             self.B_grad_solver.solve()
             self.coupled_solver.solve()
-            self.H_temp.interpolate(df.max_value(self.W.sub(2),self.thklim))
-            self.W.sub(2).assign(self.H_temp)
+            if enforce_positivity:
+                self.H_temp.interpolate(df.max_value(self.W.sub(2),self.thklim))
+                self.W.sub(2).assign(self.H_temp)
             
             if convergence_norm=='linf':
                 with self.W_i.dat.vec_ro as w_i:
@@ -411,9 +423,172 @@ class CoupledModel:
             
         self.t.assign(t+dt)
 
-        self.Ubar0.assign(self.W.sub(0))
-        self.Udef0.assign(self.W.sub(1))
-        self.H0.assign(self.W.sub(2))
+        if update:
+            self.Ubar0.assign(self.W.sub(0))
+            self.Udef0.assign(self.W.sub(1))
+            self.H0.assign(self.W.sub(2))
 
         return converged
+
+class CoupledModelAdjoint:
+    def __init__(self,model):
+        self.model = model
+
+        Lambda = self.Lambda = df.Function(model.V)
+        delta = self.delta = df.Function(model.V)
+
+        w_H0 = df.TestFunction(model.Q_thk)
+        w_B = df.TestFunction(model.Q_thk)
+        w_beta = df.TestFunction(model.Q_cg1)
+        w_adot = df.TestFunction(model.Q_thk)
+
+        R_full = self.R_full = df.replace(self.model.R,{model.W_i:model.W, 
+                                                        model.Psi:Lambda})
+
+        R_adjoint = df.derivative(R_full,model.W,model.Psi)
+        R_adjoint_linear = df.replace(R_adjoint,{Lambda:model.dW})
+        self.A_adjoint = df.lhs(R_adjoint_linear)
+        self.b_adjoint = df.rhs(R_adjoint_linear)
+
+        G_H0 = self.G_H0 = df.derivative(R_full,model.H0,w_H0)
+        G_B = self.G_B = df.derivative(R_full,model.B,w_B)
+        G_beta = self.G_beta = df.derivative(R_full,model.beta2,w_beta)
+        G_adot = self.G_adot = df.derivative(R_full,model.adot,w_adot)
+
+    def backward(self,delta):
+        A = df.assemble(self.A_adjoint)
+        df.solve(A,self.Lambda,-1*self.delta.vector())
+
+        self.g_H0 = df.assemble(self.G_H0)
+        self.g_B = df.assemble(self.G_B)
+        self.g_beta = df.assemble(self.G_beta)
+        self.g_adot = df.assemble(self.G_adot)
+
+class FenicsModel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, H0, B, beta2, adot, Ubar0, Udef0, model, adjoint, t, dt, kwargs):
+        ctx.H0 = H0
+        ctx.B = B
+        ctx.beta2 = beta2
+        ctx.adot = adot
+        ctx.Ubar0 = Ubar0
+        ctx.Udef0 = Udef0
+
+        ctx.model = model
+        ctx.adjoint = adjoint
+        ctx.t = t
+        ctx.dt = dt
+
+        model.Ubar0.dat.data[:] = Ubar0
+        model.Udef0.dat.data[:] = Udef0
+        model.H0.dat.data[:] = H0
+        model.B.dat.data[:] = B
+        model.beta2.dat.data[:] = beta2
+        model.adot.dat.data[:] = adot
+
+        model.step(t,dt,**kwargs)
+
+        ctx.Ubar = torch.tensor(model.W.dat.data[:][0])
+        ctx.Udef = torch.tensor(model.W.dat.data[:][1])
+        ctx.H = torch.tensor(model.W.dat.data[:][2])
+
+        return torch.tensor(ctx.Ubar),torch.tensor(ctx.Udef),torch.tensor(ctx.H)
+        #return torch.tensor(model.W.dat.data[0]),torch.tensor(model.W.dat.data[1]),torch.tensor(model.W.dat.data[2])
+    
+    @staticmethod
+    def backward(ctx,delta_Ubar,delta_Udef,delta_H):
+        model = ctx.model
+        adjoint = ctx.adjoint
+        
+        model.H0.dat.data[:] = ctx.H0
+        model.B.dat.data[:] = ctx.B
+        model.beta2.dat.data[:] = ctx.beta2
+        model.adot.dat.data[:] = ctx.adot
+        model.Ubar0.dat.data[:] = ctx.Ubar0
+        model.Udef0.dat.data[:] = ctx.Udef0
+
+        model.dt.assign(ctx.dt)
+        model.t.assign(ctx.t)
+
+        model.W.dat.data[0][:] = ctx.Ubar
+        model.W.dat.data[1][:] = ctx.Udef
+        model.W.dat.data[2][:] = ctx.H
+
+        adjoint.delta.dat.data[0][:] = delta_Ubar
+        adjoint.delta.dat.data[1][:] = delta_Udef
+        adjoint.delta.dat.data[2][:] = delta_H*(ctx.H>(model.thklim(0.0)+1e-5)).to(torch.float64)
+
+        adjoint.backward(adjoint.delta)
+
+        return torch.tensor(adjoint.g_H0.dat.data[:]),torch.tensor(adjoint.g_B.dat.data[:]),torch.tensor(adjoint.g_beta.dat.data[:]),torch.tensor(adjoint.g_adot.dat.data[:]),None,None,None,None,None,None,None
+
+
+class SurfaceIntegral:
+    def __init__(self,model,p=2):
+        self.model = model
+        self.S_obs = df.Function(model.Q_thk)
+        self.S = df.Function(model.Q_thk)
+        self.w = df.TestFunction(model.Q_thk)
+
+        self.I = 1./p*abs(self.S - self.S_obs)**p*df.dx
+        self.J = df.derivative(self.I,self.S,self.w)
+
+class SurfaceCost(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,S,S_obs,surface_integral):
+        ctx.surface_integral = surface_integral
+        ctx.S = torch.tensor(S)
+        ctx.S_obs = torch.tensor(S_obs)
+        surface_integral.S_obs.dat.data[:] = S_obs
+        surface_integral.S.dat.data[:] = S
+        return torch.tensor(df.assemble(surface_integral.I))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        surface_integral = ctx.surface_integral
+        S = ctx.S
+        S_obs = ctx.S_obs
+        surface_integral.S_obs.dat.data[:] = S_obs
+        surface_integral.S.dat.data[:] = S
+        j = df.assemble(surface_integral.J)
+        return torch.tensor(j.dat.data[:])*grad_output, None, None
+
+class VelocityIntegral:
+    def __init__(self,model,mode='lin',gamma=1.0):
+        self.model = model
+        self.V = df.VectorFunctionSpace(model.mesh,"CG",2)
+        self.U_obs = df.Function(self.V)
+        self.U = df.Function(model.Q_vel)
+        self.w = df.TestFunction(model.Q_vel)
+        self.U_mag = df.sqrt(df.dot(self.U,self.U) + df.Constant(gamma))
+        self.U_obs_mag = df.sqrt(df.dot(self.U_obs,self.U_obs) + df.Constant(gamma))
+
+        if mode=='log':
+            self.I = df.ln(self.U_mag/self.U_obs_mag)**2*df.dx
+        else:    
+            r = self.U - self.U_obs
+            self.I = 0.5*df.dot(r,r)*df.dx
+        self.J = df.derivative(self.I,self.U,self.w)
+
+class VelocityCost(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,U,U_obs,velocity_integral):
+        ctx.velocity_integral = velocity_integral
+        ctx.U = U
+        ctx.U_obs = U_obs
+        velocity_integral.U_obs.dat.data[:] = U_obs
+        velocity_integral.U.dat.data[:] = U
+        return torch.tensor(df.assemble(velocity_integral.I))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        velocity_integral = ctx.velocity_integral
+        U = ctx.U
+        U_obs = ctx.U_obs
+        velocity_integral.U_obs.dat.data[:] = U_obs
+        velocity_integral.U.dat.data[:] = U
+        j = df.assemble(velocity_integral.J)
+        return torch.tensor(j.dat.data[:])*grad_output, None, None
+
+
 

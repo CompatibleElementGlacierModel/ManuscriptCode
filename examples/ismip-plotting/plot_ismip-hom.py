@@ -127,8 +127,8 @@ if __name__ == "__main__":
 
     fig,axs = plt.subplots(3,1,sharex=True)
     fig.set_size_inches(4.5,9)
-    plot('a',['040'],[axs[0]])
-    plot('c',['040'],[axs[1]])
+    plot('a',['005'],[axs[0]])
+    plot('c',['020'],[axs[1]])
     plot('f',['001'],[axs[2]])
 
     axs[2].set_xlim(0,1)

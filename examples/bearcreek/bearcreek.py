@@ -26,6 +26,7 @@ class BearCreek:
             mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
 
         config = {'solver_type': 'gmres',
+                  'velocity_function_space':'MTW',
                   'sliding_law': 'Budd',
                   'vel_scale': 100.,
                   'thk_scale': 1000.,
@@ -35,7 +36,7 @@ class BearCreek:
                   'thklim': 1e-3,
                   'alpha': 1000.0,
                   'z_sea': 1.5,
-                  'calve': True}
+                  'calve': False}
           
         model = self.model = CoupledModel(mesh,**config)
         self.interpolate_bed_from_pickle(f'{data_dir}/interpolant.pkl')
@@ -114,9 +115,9 @@ class BearCreek:
                 U_s.interpolate(model.Ubar0 - 1./4*model.Udef0)
 
                 afile.save_function(model.H0, idx=i)
-                afile.save_function(S_out,idx=i)
-                afile.save_function(N_out,idx=i)
-                afile.save_function(U_s,idx=i)
+                afile.save_function(S_out, idx=i)
+                afile.save_function(N_out, idx=i)
+                afile.save_function(U_s, idx=i)
 
                 S_file.write(S_out,time=t)
                 H_file.write(model.H0,time=t)

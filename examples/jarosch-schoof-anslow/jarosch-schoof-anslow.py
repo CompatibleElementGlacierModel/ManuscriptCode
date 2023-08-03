@@ -5,10 +5,10 @@ import numpy as np
 from speceis_dg.hybrid import CoupledModel
 
 class JaroschSchoofAnslow:
-    def __init__(self,results_dir):
-        for M in [50]:
+    def __init__(self,results_dir,M=200,function_space='RT',sia=True):
+        for M in [M]:
             mesh = df.PeriodicRectangleMesh(M,3,1,3/M,direction='y',name='mesh',diagonal='crossed')
-            model = CoupledModel(mesh,velocity_function_space='RT',periodic=True,sia=True,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=2.5e4,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-6,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3,flux_type='lax-friedrichs')
+            model = CoupledModel(mesh,velocity_function_space=function_space,sia=sia,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=2.5e4,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-6,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3,flux_type='lax-friedrichs')
 
             X = df.SpatialCoordinate(mesh)
             x,y = X
@@ -52,7 +52,7 @@ class JaroschSchoofAnslow:
             Us_file.write(U_s,time=t)
 
             i = 0
-            with df.CheckpointFile(f"{results_dir}/functions_{M}_ho.h5", 'w') as afile:
+            with df.CheckpointFile(f"{results_dir}/functions_{M}_{function_space}.h5", 'w') as afile:
                 afile.save_mesh(mesh)
                 while t<t_end:
                     model.step(t,dt,picard_tol=1e-3,max_iter=20,momentum=0.5)
@@ -69,3 +69,4 @@ class JaroschSchoofAnslow:
 
 if __name__=='__main__':
     jsa = JaroschSchoofAnslow('./results/')
+    jsa = JaroschSchoofAnslow('./results/',function_space='MTW',sia=False)

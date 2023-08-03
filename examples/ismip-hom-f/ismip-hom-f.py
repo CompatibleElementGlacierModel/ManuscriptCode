@@ -2,14 +2,14 @@ import sys
 sys.path.append('../..')
 import firedrake as df
 import numpy as np
-from speceis_dg.hybrid import CoupledModel
+from speceis_dg.hybrid_flux_formulation import CoupledModel
 
 class ISMIP_HOM_F:
     def __init__(self,results_dir):
         for l in ['000', '001']:
 
             mesh = df.PeriodicUnitSquareMesh(50,50,diagonal='crossed',name='mesh')
-            model = CoupledModel(mesh,velocity_function_space='MTW',periodic=True,sia=False,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=1e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=1.0,A=2.14e-7,eps_reg=1e-8,thklim=1e-3,theta=1.0,alpha=0,p=2,membrane_degree=2,shear_degree=3)
+            model = CoupledModel(mesh,velocity_function_space='RT',sia=False,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=1e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=1.0,A=2.14e-7,eps_reg=1e-8,thklim=1e-3,theta=1.0,alpha=0,p=2,membrane_degree=2,shear_degree=3)
 
             X = df.SpatialCoordinate(mesh)
             x,y = X
@@ -46,7 +46,8 @@ class ISMIP_HOM_F:
 
             t = 0
             t_end = 250
-            dt = 25.0
+            dt = 25
+            model.F0.vector()[:]=0.1
             
             Q_cg2 = df.VectorFunctionSpace(model.mesh,"CG",1)
             U_s = self.U_s = df.Function(Q_cg2)
