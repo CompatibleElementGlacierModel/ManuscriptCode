@@ -407,7 +407,7 @@ class CoupledModel:
                        df.assemble((self.W_i.sub(2) - self.W.sub(2))**2*df.dx))
                        / self.area)
 
-            PETSc.Sys.Print(i,eps,time.time()-t_)
+            #PETSc.Sys.Print(i,eps,time.time()-t_)
 
 
             self.W_i.assign((1-momentum)*self.W + momentum*self.W_i)
@@ -457,7 +457,11 @@ class CoupledModelAdjoint:
 
     def backward(self,delta):
         A = df.assemble(self.A_adjoint)
-        df.solve(A,self.Lambda,-1*self.delta.vector())
+        df.solve(A,self.Lambda,-1*self.delta.vector(),solver_parameters = {"ksp_type": "preonly",
+                                  "pmat_type":"aij",
+                                  "pc_type": "lu",  
+                                  "pc_factor_mat_solver_type": "mumps"} 
+                 )
 
         self.g_H0 = df.assemble(self.G_H0)
         self.g_B = df.assemble(self.G_B)
@@ -492,8 +496,7 @@ class FenicsModel(torch.autograd.Function):
         ctx.Udef = torch.tensor(model.W.dat.data[:][1])
         ctx.H = torch.tensor(model.W.dat.data[:][2])
 
-        return torch.tensor(ctx.Ubar),torch.tensor(ctx.Udef),torch.tensor(ctx.H)
-        #return torch.tensor(model.W.dat.data[0]),torch.tensor(model.W.dat.data[1]),torch.tensor(model.W.dat.data[2])
+        return ctx.Ubar.clone().detach(),ctx.Udef.clone().detach(),ctx.H.clone().detach()
     
     @staticmethod
     def backward(ctx,delta_Ubar,delta_Udef,delta_H):
@@ -556,28 +559,32 @@ class SurfaceCost(torch.autograd.Function):
 class VelocityIntegral:
     def __init__(self,model,mode='lin',gamma=1.0):
         self.model = model
-        self.V = df.VectorFunctionSpace(model.mesh,"CG",2)
+        self.Q = df.FunctionSpace(model.mesh,"CG",1)
+        self.V = df.VectorFunctionSpace(model.mesh,"CG",1)
         self.U_obs = df.Function(self.V)
+        self.tau_obs = df.Function(self.Q)
         self.U = df.Function(model.Q_vel)
         self.w = df.TestFunction(model.Q_vel)
         self.U_mag = df.sqrt(df.dot(self.U,self.U) + df.Constant(gamma))
         self.U_obs_mag = df.sqrt(df.dot(self.U_obs,self.U_obs) + df.Constant(gamma))
 
         if mode=='log':
-            self.I = df.ln(self.U_mag/self.U_obs_mag)**2*df.dx
+            self.I = self.tau_obs*df.ln(self.U_mag/self.U_obs_mag)**2*df.dx
         else:    
             r = self.U - self.U_obs
-            self.I = 0.5*df.dot(r,r)*df.dx
+            self.I = 0.5*self.tau_obs*df.dot(r,r)*df.dx
         self.J = df.derivative(self.I,self.U,self.w)
 
 class VelocityCost(torch.autograd.Function):
     @staticmethod
-    def forward(ctx,U,U_obs,velocity_integral):
+    def forward(ctx,U,U_obs,tau_obs,velocity_integral):
         ctx.velocity_integral = velocity_integral
         ctx.U = U
         ctx.U_obs = U_obs
+        ctx.tau_obs = tau_obs
         velocity_integral.U_obs.dat.data[:] = U_obs
         velocity_integral.U.dat.data[:] = U
+        velocity_integral.tau_obs.dat.data[:] = tau_obs
         return torch.tensor(df.assemble(velocity_integral.I))
 
     @staticmethod
@@ -585,10 +592,13 @@ class VelocityCost(torch.autograd.Function):
         velocity_integral = ctx.velocity_integral
         U = ctx.U
         U_obs = ctx.U_obs
+        tau_obs = ctx.tau_obs
         velocity_integral.U_obs.dat.data[:] = U_obs
         velocity_integral.U.dat.data[:] = U
+        velocity_integral.tau_obs.dat.data[:] = tau_obs
         j = df.assemble(velocity_integral.J)
-        return torch.tensor(j.dat.data[:])*grad_output, None, None
+        return torch.tensor(j.dat.data[:])*grad_output, None, None, None
+
 
 
 
