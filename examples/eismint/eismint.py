@@ -7,8 +7,8 @@ from speceis_dg.hybrid import CoupledModel
 
 class EISMINT:
     def __init__(self,results_dir):
-        mesh = df.UnitSquareMesh(25,25,diagonal='crossed')
-        model = CoupledModel(mesh,velocity_function_space='RT',periodic=True,sia=True,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=7.5e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-3,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3)
+        mesh = df.UnitSquareMesh(50,50,diagonal='crossed')
+        model = CoupledModel(mesh,solver_type='direct',velocity_function_space='RT',sia=True,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=7.5e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-3,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3)
 
         X = df.SpatialCoordinate(mesh)
         x,y = X
@@ -38,8 +38,8 @@ class EISMINT:
         U_s = df.Function(model.Q_vel)
 
         t = 0.0
-        t_end = 20000
-        dt = (t_end - t)/20
+        t_end = 10000
+        dt = (t_end - t)/100
         H_true = df.Function(model.Q_thk)
         
         U_s.vector()[:] = model.Ubar0.vector()[:] - 1./4*model.Udef0.vector()[:]
@@ -49,7 +49,7 @@ class EISMINT:
         Us_file.write(U_s,time=t)
 
         while t<t_end:
-            model.step(t,dt,picard_tol=1e-4,max_iter=1000,momentum=0.0)
+            model.step(t,dt,picard_tol=1e-3,max_iter=1000,momentum=0.0,convergence_norm='l2')
             t += dt
             print (t,model.H0.vector().max())
             S_out.vector()[:] = model.H0.vector()[:] + model.B.vector()[:] - model.S_lin.vector()[:]

@@ -407,7 +407,7 @@ class CoupledModel:
                        df.assemble((self.W_i.sub(2) - self.W.sub(2))**2*df.dx))
                        / self.area)
 
-            #PETSc.Sys.Print(i,eps,time.time()-t_)
+            PETSc.Sys.Print(i,eps,time.time()-t_)
 
 
             self.W_i.assign((1-momentum)*self.W + momentum*self.W_i)
@@ -455,18 +455,30 @@ class CoupledModelAdjoint:
         G_beta = self.G_beta = df.derivative(R_full,model.beta2,w_beta)
         G_adot = self.G_adot = df.derivative(R_full,model.adot,w_adot)
 
-    def backward(self,delta):
-        A = df.assemble(self.A_adjoint)
-        df.solve(A,self.Lambda,-1*self.delta.vector(),solver_parameters = {"ksp_type": "preonly",
-                                  "pmat_type":"aij",
-                                  "pc_type": "lu",  
-                                  "pc_factor_mat_solver_type": "mumps"} 
-                 )
+        self.ksp = PETSc.KSP().create()
 
+    def backward(self,delta):
+        #tik = time.time()
+        A = df.assemble(self.A_adjoint)
+        #print(f'adjoint assembly: {time.time()-tik}')
+        #tik = time.time()
+        self.ksp.setOperators(A.M.handle)
+        for d in self.delta.dat.data[:]:
+            d*=-1
+        with self.delta.dat.vec_ro as vec:
+            with self.Lambda.dat.vec as sol:
+                self.ksp.solve(vec,sol)
+        #df.solve(A,self.Lambda,-1*self.delta.vector(),solver_parameters = {'pc_type': 'bjacobi',
+        #                          "ksp_rtol":1e-5} 
+        #         )
+        
+        #print(f'adjoint solve: {time.time()-tik}')
+        #tik = time.time()
         self.g_H0 = df.assemble(self.G_H0)
         self.g_B = df.assemble(self.G_B)
         self.g_beta = df.assemble(self.G_beta)
         self.g_adot = df.assemble(self.G_adot)
+        #print(f'gradient compute: {time.time()-tik}')
 
 class FenicsModel(torch.autograd.Function):
     @staticmethod
@@ -520,7 +532,7 @@ class FenicsModel(torch.autograd.Function):
         adjoint.delta.dat.data[0][:] = delta_Ubar
         adjoint.delta.dat.data[1][:] = delta_Udef
         adjoint.delta.dat.data[2][:] = delta_H*(ctx.H>(model.thklim(0.0)+1e-5)).to(torch.float64)
-
+       
         adjoint.backward(adjoint.delta)
 
         return torch.tensor(adjoint.g_H0.dat.data[:]),torch.tensor(adjoint.g_B.dat.data[:]),torch.tensor(adjoint.g_beta.dat.data[:]),torch.tensor(adjoint.g_adot.dat.data[:]),None,None,None,None,None,None,None

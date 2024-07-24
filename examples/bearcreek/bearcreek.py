@@ -5,7 +5,7 @@ sys.path.append('../..')
 import firedrake as df
 import pickle
 from firedrake.petsc import PETSc
-from speceis_dg.hybrid import CoupledModel
+from speceis_dg.hybrid_diff import CoupledModel
 
 class BearCreek:
 
@@ -36,7 +36,7 @@ class BearCreek:
                   'thklim': 1e-3,
                   'alpha': 1000.0,
                   'z_sea': 1.5,
-                  'calve': False}
+                  'calve': 'b'}
           
         model = self.model = CoupledModel(mesh,**config)
         self.interpolate_bed_from_pickle(f'{data_dir}/interpolant.pkl')
@@ -86,6 +86,8 @@ class BearCreek:
         t_end = 2000
         dt = 10.0
         max_step = 10.0
+
+        model.calving_factor.assign(10)
 
         with df.CheckpointFile(f"{results_dir}/functions.h5", 'w') as afile:
             
