@@ -37,16 +37,28 @@ len_scale = 50000
 thk_scale = 5000
 vel_scale = 100
 
-try:
-    run_number = int(sys.argv[1])
-except:
-    run_number = 999
+run_number = int(sys.argv[1])
+calving = bool(int(sys.argv[2]))
+freeze_climate = bool(int(sys.argv[3]))
 
-random_sample = False
-linearize_beta = False
-data_dir = '../meshes/mesh_1000/'
+print(calving)
+print(freeze_climate)
+
+random_sample = True
+data_dir = '../meshes/mesh_2200/'
 prefix = 'v1'
-results_dir = f'{data_dir}/{prefix}/ensemble_linear/projected_climate_no_calve/'
+
+if calving and freeze_climate:
+    results_dir = f'{data_dir}/{prefix}/ensemble_linear/frozen_climate_calve/'
+elif not calving and freeze_climate:
+    results_dir = f'{data_dir}/{prefix}/ensemble_linear/frozen_climate_no_calve/'
+elif not calving and not freeze_climate:
+    results_dir = f'{data_dir}/{prefix}/ensemble_linear/projected_climate_no_calve/'
+elif calving and not freeze_climate:
+    results_dir = f'{data_dir}/{prefix}/ensemble_linear/projected_climate_calve/'
+else:
+    raise Exception("not a valid ensemble option")
+
 
 Path(f'{results_dir}/run_{run_number}/').mkdir(parents=True, exist_ok=True)
 
@@ -54,7 +66,7 @@ mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
 mesh.coordinates.dat.data[:] -= (mesh.coordinates.dat.data.max(axis=0) + mesh.coordinates.dat.data.min(axis=0))/2.
 mesh.coordinates.dat.data[:] /= len_scale
 
-config = {'solver_type': 'gmres',
+config = {'solver_type': 'direct',
           'sliding_law': 'Budd',
           'velocity_function_space':'MTW',
           'sia':False,
@@ -66,7 +78,7 @@ config = {'solver_type': 'gmres',
           'thklim': 1./thk_scale,
           'alpha': 1000.0,
           'z_sea': 0.0,
-          'boundary_markers':[1000,1001],
+          'boundary_markers':[0,0],
           'calve': 'b'}
   
 model = CoupledModel(mesh,**config)
@@ -152,11 +164,10 @@ output_misfit = df.Function(model.Q_thk,name='misfit')
 output_Bstd = df.Function(model.Q_thk,name='B_std')
 
 initdir = f'{data_dir}/{prefix}/time/states/'
-initfile = 'state_003.p'
+initfile = 'state_009.p'
 with open(f'{initdir}/{initfile}','rb') as fi:
     data = pickle.load(fi)
     z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:,:36] = data[:5]
-    #Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [torch.from_numpy(x) for x in data[5]]
  
 Ubar_prev = torch.from_numpy(model.Ubar0.dat.data[:])
 Udef_prev = torch.from_numpy(model.Udef0.dat.data[:])
@@ -169,7 +180,8 @@ beta_map = BetaMap(f'{data_dir}/beta/beta_basis.p')
 adot_map_ = AdotMap(f'{data_dir}/adot/adot_basis.p')
 
 if random_sample:
-    laplace_ = LaplaceFromSamples([f'{data_dir}/{prefix}/uncertainty/hvps/hvp_{k}.p' for k in range(30)],bed_map=bed_map,beta_map=beta_map,adot_map=adot_map_,method='onepass',maxrank=None)
+
+    laplace_ = LaplaceFromSamples([f for f in Path(f'{data_dir}/{prefix}/uncertainty/hvps/').iterdir()],bed_map=bed_map,beta_map=beta_map,adot_map=adot_map_,method='onepass',maxrank=None)
 
     n_B = B_map.shape[1]
     n_beta = beta_map_x.shape[1]
@@ -183,14 +195,11 @@ if random_sample:
 
     delta_B = Delta[:n_B]
     delta_beta = Delta[n_B:n_B + n_beta]
-    #delta_beta_t = Delta[n_B + n_beta:n_B + n_beta + n_beta_t].reshape(z_beta_t.shape)
     delta_adot = Delta[n_B +n_beta:n_B+n_beta+n_adot]
     delta_nse = Delta[n_B+n_beta+n_adot:].reshape(z_nse[:,:36].shape)
 
     z_B += delta_B
-    if not linearize_beta:
-        z_beta_ref += delta_beta
-        #z_beta_t += delta_beta_t
+    z_beta_ref += delta_beta
     z_adot += delta_adot
 
     z_nse[:,:36] += delta_nse
@@ -216,21 +225,12 @@ adot_hist = adot_ref.reshape(-1,1) + L1x @ z_dif.T.reshape(2,4).T @ L1t_hist.T
 
 adot = adot_hist[:,0]
 
-if linearize_beta:
-    log_beta_ref = beta_map_x @ z_beta_ref
-    log_beta_eps = beta_map_x @ delta_beta/2.0
-    log_beta_t = beta_map_x @ (z_beta_t @ beta_map_t.T)
-    beta2_ref = torch.exp(log_beta_ref)*(1 + log_beta_eps)
-    beta2_ref[beta2_ref<0.001] = 0.001
-    beta2 = beta2_ref.reshape(-1,1)*torch.exp(log_beta_t)
+log_beta_ref = beta_map_x @ z_beta_ref
+log_beta_t = beta_map_x @ (z_beta_ref.reshape(-1,1) + z_beta_t @ beta_map_t.T)
+beta2_ref = torch.exp(log_beta_ref)
+beta2 = torch.exp(log_beta_t)
 
-else:
-    log_beta_ref = beta_map_x @ z_beta_ref
-    log_beta_t = beta_map_x @ (z_beta_ref.reshape(-1,1) + z_beta_t @ beta_map_t.T)
-    beta2_ref = torch.exp(log_beta_ref)
-    beta2 = torch.exp(log_beta_t)
-
-model.calving_factor.assign(0/vel_scale)
+model.calving_factor.assign(0)
 model.l.assign(100/thk_scale)
 
 ### initialization ###
@@ -261,28 +261,8 @@ beta_series = df.File(f'{results_dir}/run_{run_number}/adjoint/beta_series.pvd')
 adot_series = df.File(f'{results_dir}/run_{run_number}/adjoint/adot_series.pvd')
 D_series = df.File(f'{results_dir}/run_{run_number}/adjoint/D_series.pvd')
 
-config = {'solver_type': 'gmres',
-          'sliding_law': 'Budd',
-          'velocity_function_space':'MTW',
-          'sia':False,
-          'vel_scale': vel_scale,
-          'thk_scale': thk_scale,
-          'len_scale': len_scale,
-          'beta_scale': 1000.,
-          'theta': 1.0,
-          'thklim': 1./thk_scale,
-          'alpha': 1000.0,
-          'z_sea': 0.0,
-          'boundary_markers':[1000,1001],
-          'calve': 'b'}
-  
-model = CoupledModel(mesh,**config)
-adjoint = CoupledModelAdjoint(model)
-fm = FenicsModel
-
-#model.calving_factor.assign(250/vel_scale)
-model.calving_factor.assign(0/vel_scale)
-model.l.assign(50/thk_scale)
+if calving:
+    model.calving_factor.assign(250/vel_scale)
 
 years = range(1985,1985+36*10) 
  
@@ -292,8 +272,11 @@ surfs = []
 
 for j,y in enumerate(years):
     beta2_i = beta2[:,(y-1985)%36]
-    adot_i = adot_dif[:,min(y,2500)-1985] + adot_nse[:,y-1985]
-    #adot_i = adot_dif[:,y-1985]
+    if freeze_climate:
+        adot_i = adot_dif[:,min(y,2023)-1985] + adot_nse[:,y-1985]
+    else:
+        adot_i = adot_dif[:,min(y,2300)-1985] + adot_nse[:,y-1985]
+    
     Ubar,Udef,H0 = fm.apply(H0,B,beta2_i,adot_i,Ubar,Udef,model,adjoint,0.0,1.0,solver_args)
     S = (B + H0)
 

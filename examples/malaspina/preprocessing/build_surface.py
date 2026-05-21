@@ -386,8 +386,8 @@ def build_surface_representation(mesh_directory,dem_paths,nodatavalue,known_beta
 
     return data_dict
 
-mesh_directory = '../meshes/mesh_1000/'
-index_directory = '../meshes/mesh_1899/'
+mesh_directory = '../meshes/mesh_2200/'
+index_directory = None
 
 nodatavalue = 3.4028234663852886e+38
 cop_path = '../data/dem/cop30_3338.tif'
@@ -421,14 +421,4 @@ for paths in all_years:
     t = data['time']
     print(t)
     pickle.dump(data,open(f'{mesh_directory}/surface/time_series/map_{t}.p','wb'))
-
-"""
-for paths in all_years:
-    print(paths)
-    dem_paths = [f'{time_series_dir}/{f}' for f in paths[1:]]
-    data = build_surface_representation(mesh_directory,dem_paths,nodatavalue,known_beta=torch.zeros_like(cop_data['coefficients']['mean_coeff']),return_posterior=False,save_model_basis=False,plotting=False,smooth=False,band=1,build_model_to_coeff_map=True,index_directory=index_directory)
-    t = data['time']
-    print(t)
-    pickle.dump(data,open(f'{mesh_directory}/surface/time_series/map_rel_{t}.p','wb'))
-"""
 

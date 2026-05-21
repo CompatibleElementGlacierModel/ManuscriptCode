@@ -142,7 +142,7 @@ def build_interpolation_matrix(X,X_,x_,y_):
     tens = torch.sparse_coo_tensor(inds,torch.hstack(vals),(X.shape[0],m))
     return tens,torch.transpose(tens,1,0)
 
-mesh_directory = '../meshes/mesh_2201/'
+mesh_directory = '../meshes/mesh_2200/'
 
 dem_path = '../data/dem/cop30_3338.tif'
 nodatavalue = 3.4028234663852886e+38
@@ -359,8 +359,8 @@ for l,a in zip(length_scales,amplitudes):
     X__,Y__ = torch.meshgrid(x_[cols],x_[cols])
     X_center = torch.hstack((reshape_fortran(X__,(-1,1)),reshape_fortran(Y__,(-1,1))))
 
-    compute_indices_to_keep = False
-    index_directory = '../meshes/mesh_1899/'
+    compute_indices_to_keep = True
+    index_directory = None#'../meshes/mesh_1899/'
 
     if compute_indices_to_keep:
         near = tree.query(X_center,k=1)[0] < 2*l
@@ -489,7 +489,7 @@ axs.set_yticks([])
 axs.set_title('Prior Marginal StD')
 fig.savefig('plots/bed/prior_std.png',bbox_inches='tight')
 
-"""
+
 fig,ax = plt.subplots()
 ax.scatter(*X_train.T,c=Z_train*5000,cmap=plt.cm.gist_earth,vmin=-1000,vmax=4000)
 ax.set_title('Bed')
@@ -498,7 +498,7 @@ ax.set_yticks([])
 ax.set_aspect('equal')
 fig.set_size_inches(4,4)
 fig.savefig('./plots/bed/bed_obs.png')
-"""
+
 
 pickle.dump(data_dict,open(f'{mesh_directory}/bed/bed_basis.p','wb'))
 

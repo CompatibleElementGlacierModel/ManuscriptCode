@@ -42,10 +42,8 @@ thk_scale = 5000
 vel_scale = 100
 
 
-#data_dir = '../meshes/mesh_1899/'
-data_dir = '../meshes/mesh_2201/'
-#data_dir = '../meshes/mesh_1000/'
-prefix = 'v5'
+data_dir = '../meshes/mesh_2200/'
+prefix = 'v1'
 
 initialize = False
 hot_start = False
@@ -59,7 +57,7 @@ mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
 mesh.coordinates.dat.data[:] -= (mesh.coordinates.dat.data.max(axis=0) + mesh.coordinates.dat.data.min(axis=0))/2.
 mesh.coordinates.dat.data[:] /= len_scale
 
-config = {'solver_type': 'gmres',
+config = {'solver_type': 'direct',
           'sliding_law': 'Budd',
           'velocity_function_space':'MTW',
           'sia':False,
@@ -71,7 +69,7 @@ config = {'solver_type': 'gmres',
           'thklim': 1./thk_scale,
           'alpha': 1000.0,
           'z_sea': 0.0,
-          'boundary_markers':[1000,1001],
+          'boundary_markers':[0,0],
           'calve': 'b'}
   
 model = CoupledModel(mesh,**config)
@@ -170,7 +168,7 @@ mu_obs = h_S_obs @ beta
 S_mean = mu_mod
 S_map = L_S_mod
 
-with open(f'{data_dir}/bed/bed_basis_checkerboard.p','rb') as fi:
+with open(f'{data_dir}/bed/bed_basis.p','rb') as fi:
     data_bed = pickle.load(fi)
 L_B_obs = data_bed['observation_basis']['coeff_map']
 h_B_obs = data_bed['observation_basis']['mean_map']
@@ -490,69 +488,33 @@ def closure():
     return L
 
 
-if initialize:
-    #lbfgs = torch.optim.LBFGS([z_B,z_adot],
-    lbfgs = torch.optim.LBFGS([z_B,z_beta_ref,z_adot],
-                        history_size=50,
-                        line_search_fn="strong_wolfe",max_iter=50)
+lbfgs = torch.optim.LBFGS([z_B,z_beta_ref,z_beta_t,z_adot,z_nse],
+                    history_size=20,
+                    line_search_fn="strong_wolfe",max_iter=50)
 
-    static_traction = True
-    relative_surface_loss = False
-    relative_velocity_loss = False
 
-    #initdir = f'../meshes/mesh_2200/v3/init/states/'
-    #initfile = 'state_005.p'# max(os.listdir(initdir))
-    #with open(f'{initdir}/{initfile}','rb') as fi:
-    #    z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:],_ = pickle.load(fi)
+initdir = f'../meshes/mesh_2200/v1/init/states/'
+initfile = max(os.listdir(initdir))
+with open(f'{initdir}/{initfile}','rb') as fi:
+    data = pickle.load(fi)
+    z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:] = data[:5]
+    Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [torch.from_numpy(x) for x in data[5]]
 
-    for q in range(0,6):
-        print(q)
-        lbfgs.step(closure)
-        i=0
+static_traction = False
+relative_surface_loss = False
+relative_velocity_loss = True
 
-        with open(f'{results_dir}/states/state_{q:03d}.p','wb') as fi:
-            pickle.dump((z_beta_ref.detach(),z_beta_t.detach(),z_B.detach(),z_adot.detach(),z_nse.detach(),(Ubar_steady.detach().numpy(),Udef_steady.detach().numpy(),B_steady.detach().numpy(),H_steady.detach().numpy())),fi)
+for q in range(0,10):
+    print(q)
+    lbfgs.step(closure)
+    i = 0
 
-else:
-    #lbfgs = torch.optim.LBFGS([z_B,z_adot,z_nse],
-    lbfgs = torch.optim.LBFGS([z_B,z_beta_ref,z_beta_t,z_adot,z_nse],
-                        history_size=20,
-                        line_search_fn="strong_wolfe",max_iter=50)#,max_eval=20)
-
-    """
-    initdir = f'../meshes/mesh_1000/v1/init/states/'
-    initfile = 'state_001.p'#max(os.listdir(initdir))
-    with open(f'{initdir}/{initfile}','rb') as fi:
-        data = pickle.load(fi)
-        z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:] = data[:5]
-        Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [torch.from_numpy(x) for x in data[5]]
-        #Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [x for x in data[5]]
-    """
-    
-    initdir = f'../meshes/mesh_2201/v4/init/states/'
-    initfile = 'state_005.p'#max(os.listdir(initdir))
-    with open(f'{initdir}/{initfile}','rb') as fi:
-        data = pickle.load(fi)
-        z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:] = data[:5]
-        Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [torch.from_numpy(x) for x in data[5]]
-        #Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [x for x in data[5]]
-    
-
-    static_traction = False
-    relative_surface_loss = False
-    relative_velocity_loss = True
-    
-    for q in range(0,10):
-        print(q)
-        lbfgs.step(closure)
-        i = 0
-
-        with open(f'{results_dir}/states/state_{q:03d}.p','wb') as fi:
-            pickle.dump((z_beta_ref.detach(),z_beta_t.detach(),z_B.detach(),z_adot.detach(),z_nse.detach(),(Ubar_steady.detach().numpy(),Udef_steady.detach().numpy(),B_steady.detach().numpy(),H_steady.detach().numpy())),fi)
+    with open(f'{results_dir}/states/state_{q:03d}.p','wb') as fi:
+        pickle.dump((z_beta_ref.detach(),z_beta_t.detach(),z_B.detach(),z_adot.detach(),z_nse.detach(),(Ubar_steady.detach().numpy(),Udef_steady.detach().numpy(),B_steady.detach().numpy(),H_steady.detach().numpy())),fi)
 
 
 
 
-    
+
 
 

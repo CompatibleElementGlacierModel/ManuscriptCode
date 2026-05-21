@@ -25,9 +25,10 @@ class BearCreek:
         else:    
             mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
 
-        config = {'solver_type': 'gmres',
+        config = {'solver_type': 'direct',
                   'velocity_function_space':'MTW',
-                  'sliding_law': 'Budd',
+                  'sliding_law': 'linear',
+                  'ssa': True,
                   'vel_scale': 100.,
                   'thk_scale': 1000.,
                   'len_scale': 108000.,
@@ -35,8 +36,9 @@ class BearCreek:
                   'theta': 1.0,
                   'thklim': 1e-3,
                   'alpha': 1000.0,
-                  'z_sea': 1.5,
-                  'calve': 'b'}
+                  'z_sea': 0.0,
+                  'calve': None,
+                  'flux_type':'upwind'}
           
         model = self.model = CoupledModel(mesh,**config)
         self.interpolate_bed_from_pickle(f'{data_dir}/interpolant.pkl')
@@ -46,9 +48,9 @@ class BearCreek:
                 H_in = afile.load_function(mesh, "H0", idx=399)
                 model.H0.assign(H_in)
          
-        model.beta2.interpolate(df.Constant(100.0))
+        model.beta2.interpolate(df.Constant(5.0))
 
-        z_ela = 2.1
+        z_ela = 2.0
 
         if conservation_test:
             lapse_rate=0.0
@@ -73,13 +75,13 @@ class BearCreek:
         U_s = df.Function(Q_cg2,name='U_s')
 
         S_out.interpolate(model.S)
-        N_out.interpolate(model.N)
+        #N_out.interpolate(model.N)
         U_s.interpolate(model.Ubar0 - 1./4*model.Udef0)
 
         S_file.write(S_out,time=0.)
         H_file.write(model.H0,time=0.)
         B_file.write(model.B,time=0.)
-        Us_file.write(U_s,time=0.)
+        Us_file.write(model.Ubar0,time=0.)
         adot_file.write(model.adot,time=0.)
 
         t = 0.0
@@ -102,7 +104,7 @@ class BearCreek:
 
                 converged = model.step(t,
                                        dt,
-                                       picard_tol=2e-3,
+                                       picard_tol=1e-3,
                                        momentum=0.5,
                                        max_iter=20,
                                        convergence_norm='l2')
@@ -113,7 +115,7 @@ class BearCreek:
                 t += dt
                 PETSc.Sys.Print(t,dt,df.assemble(model.H0*df.dx))
                 S_out.interpolate(model.S)
-                N_out.interpolate(model.N)
+                #N_out.interpolate(model.N)
                 U_s.interpolate(model.Ubar0 - 1./4*model.Udef0)
 
                 afile.save_function(model.H0, idx=i)
@@ -124,8 +126,8 @@ class BearCreek:
                 S_file.write(S_out,time=t)
                 H_file.write(model.H0,time=t)
                 B_file.write(model.B,time=t)
-                Us_file.write(U_s,time=t)
-                N_file.write(N_out,time=t)
+                Us_file.write(model.Ubar0,time=t)
+                #N_file.write(N_out,time=t)
                 adot_file.write(model.adot,time=t)
                 i += 1
 

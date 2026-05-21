@@ -8,7 +8,7 @@ import pickle
 import rasterio
 from scipy.ndimage import gaussian_filter
 
-velocity_data = nc.Dataset(f'../data/velocity/ALA_G0240_0000.nc')
+velocity_data = nc.Dataset(f'../data/velocity/itslive_annual_malaspina/ALA_G0240_0000.nc')
 cop_path = '../data/dem/cop30_3338.tif'
 dem = rasterio.open(cop_path)
 Z_dem = dem.read()[0]
@@ -40,7 +40,7 @@ vy_interpolant = si.RegularGridInterpolator((x_v,y_v[::-1]),v_y[::-1].T,method='
 ice_interpolant = si.RegularGridInterpolator((x_v,y_v[::-1]),ice[::-1].T,method='nearest')
 
 
-mesh_directory = '../meshes/mesh_2201/'
+mesh_directory = '../meshes/mesh_2200/'
 mesh = df.Mesh(f'{mesh_directory}/mesh.msh',name='mesh')
 
 E = df.FiniteElement('CG',mesh.ufl_cell(),3)
@@ -102,7 +102,7 @@ pickle.dump([u_bar,mask],open(f'{mesh_directory}/velocity/velocity.p','wb'))
 
 years = [i for i in range(1985,2019)]
 for y in years:
-    velocity_data = nc.Dataset(f'../data/velocity/itslive_annual/ALA_G0240_{y}.nc')
+    velocity_data = nc.Dataset(f'../data/velocity/itslive_annual_malaspina/ALA_G0240_{y}.nc')
     v_x = np.array(velocity_data['vx'][:])
     v_y = np.array(velocity_data['vy'][:])
     v_x[v_x<-5000] = np.nan

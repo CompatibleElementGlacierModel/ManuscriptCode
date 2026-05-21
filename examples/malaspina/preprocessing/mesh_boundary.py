@@ -82,7 +82,7 @@ plt.tight_layout()
 
 
 adaptive_size_from_boundary = False # Adapt mesh size away from boundary (slower)
-boundary_resolution = 1000   # Resolution to mesh the boundary
+boundary_resolution = 2200   # Resolution to mesh the boundary
 max_size = 5000                    # Maximum element size
 min_size = boundary_resolution     # Minimium element size
 gradient = 0.2                     # speed at which element size can change
@@ -142,7 +142,6 @@ with open(output_directory+'mesh.geo','w') as fi:
 
 
 
-"""
 #plt.scatter(*boundary_external.T,c=range(len(boundary_external)))
 # Build gmsh geometry
 with pygmsh.geo.Geometry() as geom:
@@ -163,10 +162,5 @@ with pygmsh.geo.Geometry() as geom:
     geom.save_geometry(output_directory+'mesh.geo_unrolled')
     mesh = geom.generate_mesh(dim=2,algorithm=meshing_algorithm)
     mesh.write(output_directory+'mesh.msh',file_format='gmsh22')
-
-
-"""
-
-
 
 

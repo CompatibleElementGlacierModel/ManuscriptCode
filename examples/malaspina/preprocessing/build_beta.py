@@ -81,7 +81,7 @@ def build_interpolation_matrix(X,X_,x_,y_):
     tens = torch.sparse_coo_tensor(inds,torch.hstack(vals),(X.shape[0],m))
     return tens,torch.transpose(tens,1,0)
 
-mesh_directory = '../meshes/mesh_1000/'
+mesh_directory = '../meshes/mesh_2200/'
 
 mesh = df.Mesh(f'{mesh_directory}/mesh.msh',name='mesh')
 
@@ -142,7 +142,7 @@ Ly = Lx
 L = W @ torch.kron(Lx,Ly)
 L_norm = torch.linalg.norm(L,ord=torch.inf,axis=0)
 
-compute_indices_to_keep=False
+compute_indices_to_keep=True
 index_directory = '../meshes/mesh_1899/'
 if compute_indices_to_keep:
     keep = L_norm>1e-3
@@ -158,19 +158,11 @@ t = torch.linspace(0,35,36)
 Kt = k(t,t,0.5,1.)
 
 Ks = Kt # - np.outer(Kt[ref_index],Kt[ref_index])
-u,s,v = np.linalg.svd(Ks)
+u,s,v = torch.linalg.svd(Ks,full_matrices=False)
 
 
-Lt = torch.from_numpy(u * np.sqrt(s) @ u.T)
-#Lt = torch.hstack((Lt,torch.ones(Lt.shape[1],1)))
-#Lt_obs = Lt[15:25]
-#f = 1/np.sqrt((Lt**2).sum(axis=1))
-#Lt = torch.diag(f) @ Lt             
-#l,u = torch.linalg.eigh(Kt)
-#l = torch.flip(l,(0,))
-#u = torch.flip(u,(1,))
-#inds = (l/l[0])>1e-2
-#Lt = u[:,inds] * torch.sqrt(l[inds])
+Lt = u * np.sqrt(s) @ u.T
+
 mean_zero = False
 if mean_zero:
     O = torch.ones((1,Lt.shape[0]))
@@ -180,34 +172,6 @@ if mean_zero:
     u,s,_ = torch.linalg.svd(Tau_post)
     L_post = u / (s**0.5) @ u.T
     Lt = Lt @ L_post
-
-
-"""
-Ot = torch.ones(1,Lt.shape[0])
-Ft = Ot @ Lt
-F = torch.kron(Ft,L)
-I = (F @ F.T + 10000*torch.eye(F.shape[0])).to_dense()
-C = torch.linalg.cholesky(I)
-Cinv = torch.linalg.inv(C)
-V = (Cinv @ F).T
-
-Z = torch.randn(L.shape[1],Lt.shape[1])
-z = Z.T.ravel()
-z_ = z - V @ (V.T @ z)
-Z_ = z_.reshape(Z.T.shape).T
-beta0 = L @ Z_ @ Lt.T
-
-
-V[abs(V)<1e-4] = 0.0
-Vs = V.to_sparse_csr()
-Vst = V.T.to_sparse_csr()
-
-z_ = z - Vs @ (Vst @ z)
-Z_ = z_.reshape(Z.T.shape).T
-beta1 = L @ Z_ @ Lt.T
-
-"""
-"""
 
 
 log_beta = L @ torch.randn(L.shape[1],Lt.shape[1]) @ Lt.T
@@ -223,7 +187,5 @@ for i in range(3):
     axs.set_xticks([])
     axs.set_yticks([])
     axs.set_title(f't={i+1}')
-    fig.savefig(f'plots/beta/prior_beta_{i}.png',bbox_inches='tight')
-"""
-#pickle.dump((L,Lt,Vs,Vst),open(f'{mesh_directory}/beta/beta_basis.p','wb'))
+
 pickle.dump((L,Lt),open(f'{mesh_directory}/beta/beta_basis.p','wb'))

@@ -121,6 +121,10 @@ class CoupledModel:
             E_bar = self.E_bar = df.VectorElement(E_0)
             E_def = self.E_def = df.VectorElement(E_0_cg)
             E_grd = self.E_grd = df.VectorElement(E_0_cg)
+        elif velocity_function_space=='CG2':
+            E_bar = self.E_bar = df.VectorElement('CG',mesh.ufl_cell(),2)
+            E_def = self.E_def = df.VectorElement('CG',mesh.ufl_cell(),1)
+            E_grd = self.E_grd = df.VectorElement('CG',mesh.ufl_cell(),1)
         else:
             print('Unsupported Element')
 
@@ -395,7 +399,7 @@ class CoupledModel:
                                   "pc_factor_mat_solver_type": "mumps"} 
         else:
             coupled_parameters = {'ksp_type': 'gmres',
-                                  'pc_type':'ilu',
+                                  'pc_type':'jacobi',
                                   "ksp_rtol":1e-6,
                                   'ksp_initial_guess_nonzero': True}
 

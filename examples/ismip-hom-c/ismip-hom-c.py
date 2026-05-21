@@ -9,7 +9,7 @@ class ISMIP_HOM_C:
     def __init__(self,results_dir):
         for l in [5000,10000,20000,40000,80000,160000]:
             mesh = df.PeriodicUnitSquareMesh(50,50,diagonal='crossed',name='mesh')
-            model = self.model = CoupledModel(mesh,velocity_function_space='MTW',periodic=True,sia=False,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=l,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-8,thklim=1e-3,theta=1.0,alpha=0,p=4,membrane_degree=2,shear_degree=3)
+            model = self.model = CoupledModel(mesh,velocity_function_space='MTW',sia=False,ssa=True,vel_scale=100,thk_scale=1e3,len_scale=l,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-8,thklim=1e-3,theta=1.0,alpha=0,p=4,membrane_degree=2,shear_degree=3)
 
             X = df.SpatialCoordinate(mesh)
             x,y = X
@@ -39,13 +39,13 @@ class ISMIP_HOM_C:
             model.beta2.interpolate(beta_exp)
 
             Q_cg2 = df.VectorFunctionSpace(model.mesh,"CG",1)
-
             with df.CheckpointFile(f'{results_dir}/ismipc-L-{l}.h5', 'w') as afile:
                 afile.save_mesh(mesh)  # optional
-                model.step(0,1e-10)
+                model.step(0,1e-10,picard_tol=1e-5)
                 U_s = self.U_s = df.interpolate(model.Ubar0 - 0.25*model.Udef0,Q_cg2)
                 afile.save_function(model.H0, idx=0, name='H')
                 afile.save_function(U_s, idx=0, name='U_s')
+                df.File(f'{results_dir}/ismipc-L-{l}.pvd').write(U_s)
 
 if __name__=='__main__':
     ismipa = ISMIP_HOM_C('./results/')

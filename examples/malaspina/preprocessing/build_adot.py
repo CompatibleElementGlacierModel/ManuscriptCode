@@ -93,7 +93,7 @@ def build_interpolation_matrix(X,X_,x_,y_):
     tens = torch.sparse_coo_tensor(inds,torch.hstack(vals),(X.shape[0],m))
     return tens,torch.transpose(tens,1,0)
 
-mesh_directory = '../meshes/mesh_2201/'
+mesh_directory = '../meshes/mesh_2200/'
 
 mesh = df.Mesh(f'{mesh_directory}/mesh.msh',name='mesh')
 

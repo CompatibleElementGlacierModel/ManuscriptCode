@@ -8,7 +8,7 @@ from speceis_dg.hybrid import CoupledModel
 class EISMINT:
     def __init__(self,results_dir):
         mesh = df.UnitSquareMesh(50,50,diagonal='crossed')
-        model = CoupledModel(mesh,solver_type='direct',velocity_function_space='RT',sia=True,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=7.5e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-3,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3)
+        model = CoupledModel(mesh,solver_type='direct',velocity_function_space='MTW',sia=False,ssa=False,vel_scale=100,thk_scale=1e3,len_scale=7.5e5,beta_scale=1e3,time_scale=1,g=9.81,rho_i=917.,rho_w=1000.0,n=3.0,A=1e-16,eps_reg=1e-6,thklim=1e-3,theta=1.0,alpha=1000.0,p=4,membrane_degree=2,shear_degree=3,flux_type='upwind')
 
         X = df.SpatialCoordinate(mesh)
         x,y = X

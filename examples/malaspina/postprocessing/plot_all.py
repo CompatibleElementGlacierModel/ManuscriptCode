@@ -23,6 +23,7 @@ from matplotlib import colors
 import cmasher
 import pyproj
 import shapefile as shp  # Requires the pyshp package
+from pathlib import Path
 
 
 def project_array(coordinates, from_epsg=4326, to_epsg=3338, always_xy=True):
@@ -53,10 +54,10 @@ X_scale = 49038.977309852955
 X_loc = np.array([ 743600.34864157, 1204809.11692685])
 
 data_dir = '../meshes/mesh_2200/'
-prefix = 'v3'
+prefix = 'v1'
 results_dir = f'{data_dir}/{prefix}/' 
 ensemble_dir = 'ensemble_linear'
-experiment_type = 'present_climate_calve'
+experiment_type = 'frozen_climate_calve'
 sample_dir = f'{data_dir}/{prefix}/uncertainty/'
 
 mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
@@ -71,8 +72,7 @@ bed_map = BedMap(f'{data_dir}/bed/bed_basis.p')
 surf_map = SurfaceMap(f'{data_dir}/surface/time_series/map_cop30.p')
 beta_map = BetaMap(f'{data_dir}/beta/beta_basis.p')
 adot_map = AdotMap(f'{data_dir}/adot/adot_basis.p')
-laplace_ = LaplaceFromSamples([f'{sample_dir}/hvps/hvp_{k}.p' for k in range(30)],bed_map=bed_map,beta_map=beta_map,adot_map=adot_map,method='onepass',maxrank=None)
-#laplace = LaplaceFromSamples([f'{sample_dir}/hvps/hvp_{k}.p' for k in range(26)],bed_map=bed_map,beta_map=beta_map,adot_map=adot_map,method='onepass',maxrank=None)
+laplace_ = LaplaceFromSamples([f for f in Path(f'{data_dir}/{prefix}/uncertainty/hvps/').iterdir()],bed_map=bed_map,beta_map=beta_map,adot_map=adot_map,method='onepass',maxrank=None)
 
 z_B = torch.zeros(bed_map.m)
 z_beta_ref = torch.randn(beta_map.m_space)
@@ -124,19 +124,17 @@ for shape in vg.shapeRecords():
     yy = np.array([i[1] for i in shape.shape.points[:]])
     X_veg = project_array(np.vstack((xx,yy)).T,from_epsg=32607)
 
-plot_adot_comparison=False
-plot_posterior_bed=False
-plot_posterior_bed_profiles=False
-plot_posterior_bed_profiles_validation=False
-plot_posterior_thickness=False
-plot_profile=False
-plot_misfit=False
-plot_delta=False
+plot_adot_comparison=True
+plot_posterior_bed=True
+plot_posterior_bed_profiles=True
+plot_posterior_bed_profiles_validation=True
+plot_posterior_thickness=True
+plot_profile=True
+plot_misfit=True
+plot_delta=True
 plot_volumes=True
-plot_velocity_posterior=False
-plot_velocity_appendix=False
-plot_surface_mass_balance=False
-plot_talk_graphic=False
+plot_velocity_posterior=True
+plot_surface_mass_balance=True
 
 if plot_posterior_bed:
 
@@ -259,7 +257,7 @@ if plot_adot_comparison:
     axs[-1,0].set_ylabel('$P(\dot{a})$')
     fig.subplots_adjust(hspace=0,wspace=0)
     fig.set_size_inches(9,5)
-    fig.savefig('plots/melt_comparison.pdf',bbox_inches='tight')
+    fig.savefig(f'{results_dir}/plots/melt_comparison.pdf',bbox_inches='tight')
 
 
 if plot_posterior_bed_profiles:
@@ -279,11 +277,8 @@ if plot_posterior_bed_profiles:
     B_sample = df.Function(Q_dg)
     adot_sample = df.Function(Q_dg)
     experiment_types_2013 = ['projected_climate_calve']
-    experiment_types_2073 = ['projected_climate_calve','present_climate_calve']
-    experiment_types_2173 = ['projected_climate_calve','present_climate_calve']
-    #experiment_types_2013 = ['projected_climate_no_calve']
-    #experiment_types_2073 = ['projected_climate_no_calve']#,'present_climate_calve']
-    #experiment_types_2173 = ['projected_climate_no_calve']#,'present_climate_calve']
+    experiment_types_2073 = ['projected_climate_calve','frozen_climate_calve']
+    experiment_types_2173 = ['projected_climate_calve','frozen_climate_calve']
     experiment_types = [experiment_types_2013,experiment_types_2073,experiment_types_2173]
     colors = ['b','c']
 
@@ -388,124 +383,7 @@ if plot_posterior_bed_profiles:
     
     fig.set_size_inches(9,9)
     fig.subplots_adjust(wspace=0,hspace=0)
-    fig.savefig('plots/model_to_gbr_comparison.pdf',bbox_inches='tight')
-
-
-if plot_posterior_bed_profiles_validation:
-
-    B.dat.data[:] = bed_map.evaluate(z_B)*thk_scale
-    B_std.dat.data[:] = (bed_map.marginal_variance(mode='posterior')**0.5)*thk_scale
-
-
-    bed_map_v = BedMap(f'../meshes/mesh_2201/bed/bed_basis_checkerboard.p')
-    laplace_v = LaplaceFromSamples([f'../meshes/mesh_2201/v5/uncertainty/hvps/hvp_{k}.p' for k in range(27)],bed_map=bed_map_v,beta_map=beta_map,adot_map=adot_map,method='onepass',maxrank=None)
-
-    B_o = df.Function(Q_dg)
-    B_o_std = df.Function(Q_dg)
-    initfile = 'state_009.p'#max(os.listdir(f'{data_dir}/{prefix}/time/states'))
-    with open(f'../meshes/mesh_2201/v5/time/states/{initfile}','rb') as fi:
-        _,_,z_B_o,_,_,_ = pickle.load(fi)
-    B_o.dat.data[:] = bed_map_v.evaluate(z_B_o)*thk_scale
-    B_o_std.dat.data[:] = (bed_map_v.marginal_variance(mode='posterior')**0.5)*thk_scale
-
-    xs = np.linspace(-0.5,0.5,6)*X_scale + X_loc[0]
-    
-    y_g = np.linspace(mesh.coordinates.dat.data[:,1].min(),mesh.coordinates.dat.data[:,1].max(),301)
-    
-    from scipy.spatial.kdtree import KDTree
-    fig,axs = plt.subplots(nrows=len(xs),sharex=True,sharey=False)
-    fig2,ax2 = plt.subplots()
-    for n,(xx,ax) in enumerate(zip(xs,axs)):
-
-        x_g = np.ones_like(y_g)*xx
-
-        picks = (np.vstack((x_g,y_g)).T - X_loc)/X_scale
-        tree = KDTree(picks)
-        ds,inds = tree.query(bed_map.data['data']['x_obs'][-1887:])
-        
-        bb = B.at(bed_map.data['data']['x_obs'][-1887:]*X_scale + X_loc,dont_raise=True)
-        bb = np.array(bb)[ds<1e-2].astype(float)
-
-        #inds = inds[ds<4e-2]
-
-        subs = 10
-        start = np.linspace(-1,1,subs+1)
-        mask = np.ones(picks.shape[0])
-        for i,_ in enumerate(start[:-1]):
-            for j,_ in enumerate(start[:-1]):
-                if i%2==j%2:
-                    pass
-                else:
-                    x_upper = start[i+1]
-                    x_lower = start[i]
-                    y_upper = start[j+1]
-                    y_lower = start[j]
-                    l_mask = (picks[:,0]<x_upper)*(picks[:,0]>x_lower)*(picks[:,1]>y_lower)*(picks[:,1]<y_upper)
-                    mask[l_mask] = 0
-        mask = mask.astype(bool)
-
-        p1 = [B.at(list(x),dont_raise=True) for x in zip(x_g,y_g)]
-        B_profile = np.array([x if x is not None else np.nan for x in p1])
-
-        p1 = [B_std.at(list(x),dont_raise=True) for x in zip(x_g,y_g)]
-        B_std_profile = np.array([x if x is not None else np.nan for x in p1])  
-
-        p1 = [B_o.at(list(x),dont_raise=True) for x in zip(x_g,y_g)]
-        B_o_profile = np.array([x if x is not None else np.nan for x in p1])
-        
-        p1 = [B_o_std.at(list(x),dont_raise=True) for x in zip(x_g,y_g)]
-        B_o_std_profile = np.array([x if x is not None else np.nan for x in p1])
-
-        z = B_profile-B_profile
-        ax.plot(y_g,z,'k-')
-        BB = B_o_profile-B_profile
-        ax.plot(y_g,BB,'r-')
-        ax.fill_between(y_g,z- 3*B_std_profile,z + 3*B_std_profile,color='black',alpha=0.2)
-        ax.fill_between(y_g,BB - 3*B_o_std_profile,BB + 3*B_o_std_profile,color='red',alpha=0.2)
-
-
-        p1 = [B.at(list(x),dont_raise=True) for x in zip(x_g,y_g)]
-        B_profile = np.array([x if x is not None else np.nan for x in p1])
-
-        ax.plot(y_g[inds[ds<1e-2]],bed_map.data['data']['z_obs'][-1887:][ds<1e-2]*5000 - bb,'ro')
-
-
-        ax.fill_between(y_g,-1000,1000,where=~mask,alpha=0.1)
-        ax.set_xlim(y_g.min(),y_g.max())
-        ax.set_ylim(-1000,1000)
-        ax.text(0.99,0.99,f'{chr(n+97)}',ha='right',va='top',transform=ax.transAxes)
-        if n!=5:
-            ax.set_yticklabels([])
-        
-
-
-        df.tripcolor(B_o_std,vmin=0,vmax=300,axes=ax2)
-        ax2.plot(x_g,y_g,'r-')
-        ax2.plot(*(bed_map.data['data']['x_obs'][-1887:][ds<1e-2]*X_scale + X_loc).T,'ro')
-        ax2.text(x_g.min(),y_g.min(),chr(n+97),horizontalalignment='center',verticalalignment='top',fontsize=12,color='red')
-        ax2.text(x_g.max(),y_g.max(),chr(n+97)+'\'',horizontalalignment='center',verticalalignment='bottom',fontsize=12,color='red')
-        ax2.set_aspect('equal')
-        ax2.set_xticks([])
-        ax2.set_yticks([])
-    axs[-1].set_xlabel('Northing (m)')
-    axs[-1].set_ylabel('Rel. Elev. (m)')
-
-    fig.subplots_adjust(hspace=0.0)
-    fig.set_size_inches(9,6)
-    fig.savefig('plots/validation_cross_section.pdf',bbox_inches='tight')
-    
-    melt_meas = np.array([[59.871034,-140.336906],[59.826082,-140.671635],[59.834383,-140.775957],[60.003848,-141.061608]])
-    x_melt = project_array(melt_meas[:,::-1])
-    sites = ['Mal_E_L','Mal_C_L','Mal_Ch','Aga_L']
-    alignments=['bottom','top','bottom','bottom']
-
-    for x,n,al in zip(x_melt,sites,alignments):
-        ax2.plot(x[0],x[1],'^',color='white')
-        ax2.text(x[0],x[1],n,horizontalalignment='left',verticalalignment=al,fontsize=10,color='white')
-
-    fig2.set_size_inches(5,5)
-    fig2.savefig('plots/validation_map.pdf',bbox_inches='tight')
-
+    fig.savefig(f'{results_dir}/plots/model_to_gbr_comparison.pdf',bbox_inches='tight')
 
 if plot_posterior_thickness:
 
@@ -557,7 +435,7 @@ if plot_posterior_thickness:
 
     years = [2073,2173]
 
-    scenarios = ['present_climate_no_calve','present_climate_calve','projected_climate_no_calve','projected_climate_calve']
+    scenarios = ['frozen_climate_no_calve','frozen_climate_calve','projected_climate_no_calve','projected_climate_calve']
     for y in years:
         fig,axs = plt.subplots(nrows=2,ncols=2)
         for s,ax in zip(scenarios,axs.ravel()):
@@ -694,7 +572,6 @@ if plot_misfit:
     axs = axs.ravel()
 
     for j,(y,name,ax) in enumerate(zip(years,names,axs)):
-        print(y)
         with open(f'{data_dir}/surface/time_series/map_{name}.p','rb') as fi:
             surf = pickle.load(fi)
 
@@ -751,7 +628,6 @@ if plot_delta:
             names.append('cop30')
 
     for j,(y,name,ax) in enumerate(zip(years,names,axs)):
-        print(y)
 
 
         with open(f'{data_dir}/{prefix}/{ensemble_dir}/{experiment_type}/run_0/data_{y}.p','rb') as fi:
@@ -803,7 +679,7 @@ if plot_volumes:
     years = [y for y in range(1985,2023)] + [y for y in range(2023,1985+360,5)] + [2343] 
     volumes = np.zeros((len(years),n_runs))
     fig,axs = plt.subplots(ncols=2,sharey=False)
-    experiment_types = ['projected_climate_no_calve','projected_climate_calve','present_climate_calve','present_climate_no_calve']
+    experiment_types = ['projected_climate_no_calve','projected_climate_calve','frozen_climate_calve','frozen_climate_no_calve']
     labels = ['Proj. climate, no calving','Proj. climate, calving','Pres. climate, no calving', 'Pres. climate, calving']
     colors = ['g','b','r','c']
     for typ,c,l in zip(experiment_types,colors,labels):
@@ -881,7 +757,6 @@ if plot_velocity_posterior:
                 UU = df.project(U_bar - 0.25*U_def,Q_cg2)
                 if profile_average:
                     for q in range(3):
-                        print("here")
                         x0 = np.linspace(startpts[q,0],endpts[q,0],100)
                         y0 = np.linspace(startpts[q,1],endpts[q,1],100)
                         u_mod[q,i,j] = np.linalg.norm(np.vstack([UU.at(np.copy(x)) for x in np.vstack((x0,y0)).T]).mean(axis=0))
@@ -900,7 +775,6 @@ if plot_velocity_posterior:
             U_temp.dat.data[:] = v
             if profile_average:
                 for q in range(3):
-                    print("here")
                     x0 = np.linspace(startpts[q,0],endpts[q,0],100)
                     y0 = np.linspace(startpts[q,1],endpts[q,1],100)
                     u_obs[q,i] = np.linalg.norm(np.vstack([U_temp.at(np.copy(x)) for x in np.vstack((x0,y0)).T]).mean(axis=0))
@@ -1007,119 +881,4 @@ if plot_velocity_posterior:
 
     fig.set_size_inches(4.5,4.5)
     fig.savefig(f'{results_dir}/plots/velocity_time.pdf',bbox_inches='tight')
-
-if plot_velocity_appendix:
-    years = [y for y in range(1985,2019)]
-
-    with open(f'{data_dir}/velocity/velocity.p','rb') as fi:
-        [v_avg,v_mask] = pickle.load(fi)
-
-    velocities_0 = [None for i in range(len(years))]
-    for i,y in enumerate(years):
-        try:
-            with open(f'{data_dir}/velocity/itslive_annual/velocity_{y}.p','rb') as fi:
-                v = pickle.load(fi)
-            velocities_0[i] = v
-        except FileNotFoundError:
-            pass
-
-    v_avg = np.nanmean(velocities_0[:-2],axis=0)
-    v_avg[np.isnan(v_avg)] = 0.0
-
-    U_avg = df.Function(Q_cg2)
-    U_avg.dat.data[:] = v_avg
-    U_avg_mag = (U_avg.dat.data[:]**2).sum(axis=1)**0.5
-
-    U_t = df.Function(Q_cg2)
-
-    U_mod_dif = df.Function(Q_cg_3)
-    U_obs_dif = df.Function(Q_cg_3)
-
-    U_mods = []
-
-    for i,y in enumerate(years):
-        with open(f'{data_dir}/{prefix}/{ensemble_dir}/{experiment_type}/run_0/data_{y}.p','rb') as fi:
-            data = pickle.load(fi)
-        U_bar.dat.data[:] = data[-2]*len_scale*vel_scale
-        U_def.dat.data[:] = data[-1]*len_scale*vel_scale
-        U_s_2 = df.project(U_bar - 0.25*U_def,Q_cg2)
-
-        U_mods.append(U_s_2.dat.data[:])
-
-    U_mod_avg = np.mean(U_mods,axis=0)
-    
-    figs = [plt.subplots(nrows=4,ncols=4) for q in range(5)]
-    for i,y in enumerate(years):
-        axs = figs[i//8][1].ravel()
-        U_mod_dif.dat.data[:] = np.linalg.norm(U_mods[i],axis=1) - np.linalg.norm(U_mod_avg,axis=1)
-        U_obs_dif.dat.data[:] = np.linalg.norm(velocities_0[i],axis=1) - np.linalg.norm(v_avg,axis=1)
-        
-        ax1 = axs[2*(i%8)]
-        ax2 = axs[2*(i%8) + 1]
-        ax1.text(0.99,0.99,f'{y}',ha='right',va='top',transform=ax1.transAxes)
-        #df.tripcolor(U_mod_dif,axes=ax1,vmin=-300,vmax=300,cmap=plt.cm.coolwarm)
-        #df.tripcolor(U_obs_dif,axes=ax2,vmin=-300,vmax=300,cmap=plt.cm.coolwarm)
-        df.tripcolor(U_mod_dif,axes=ax1,vmin=-200,vmax=200,cmap=plt.cm.coolwarm)
-        df.tripcolor(U_obs_dif,axes=ax2,vmin=-200,vmax=200,cmap=plt.cm.coolwarm)
-
-        for ax in axs.ravel():
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_aspect('equal')
-            ax.plot(*boundary.T,'k-')
-
-    for ax in figs[-1][1].ravel()[4:]:
-        ax.remove()
-
-    for j,(fig,axs) in enumerate(figs):
-        fig.set_size_inches(9,10.51)
-        fig.subplots_adjust(wspace=0,hspace=0)
-        fig.savefig(f'{results_dir}/plots/velocity_all_{j}.pdf',bbox_inches='tight')
-
-
-if plot_talk_graphic:
-    
-    fig,ax = plt.subplots(nrows=1,ncols=1)
-
-    df.triplot(mesh,axes=ax,boundary_kw={'colors':'black'})
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    ax.set_aspect('equal')
-
-
-    fig.savefig('../../../../../Documents/Talks/centennial/figs/mesh.eps')
-
-    fig,ax = plt.subplots(nrows=1,ncols=1)
-    H = df.Function(Q_dg)
-    with open(f'{data_dir}/{prefix}/{ensemble_dir}/projected_climate_calve/run_{0}/data_2023.p','rb') as fi:
-        data = pickle.load(fi)
-        H.dat.data[:] = data[0]
-    
-    df.tripcolor(H,axes=ax,cmap=cmasher.arctic,vmin=0,vmax=0.2)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    ax.set_aspect('equal')
-
-    fig.savefig('../../../../../Documents/Talks/centennial/figs/thk.eps')
-  
-
-
-
-
-
-
-        
-
-
-    
-
-
-   
-    
-
-
-
-
 

@@ -45,16 +45,19 @@ vel_scale = 100
 data_dir = '../meshes/mesh_2200/'
 prefix = 'v1'
 
-initialize = False
+initialize = True
 hot_start = False
 
-results_dir = f'{data_dir}/{prefix}/uncertainty/'
+if initialize:
+    results_dir = f'{data_dir}/{prefix}/init/'
+else:
+    results_dir = f'{data_dir}/{prefix}/time/'
 
 mesh = df.Mesh(f'{data_dir}/mesh.msh',name='mesh')
 mesh.coordinates.dat.data[:] -= (mesh.coordinates.dat.data.max(axis=0) + mesh.coordinates.dat.data.min(axis=0))/2.
 mesh.coordinates.dat.data[:] /= len_scale
 
-config = {'solver_type': 'gmres',
+config = {'solver_type': 'direct',
           'sliding_law': 'Budd',
           'velocity_function_space':'MTW',
           'sia':False,
@@ -241,6 +244,30 @@ sigma2_vel = (25/vel_scale)**2
 rel_frac = 0.0
 sigma2_mod = (1/thk_scale)**2
 
+H_file = df.File(f'{results_dir}/adjoint/H.pvd')
+H0_file = df.File(f'{results_dir}/adjoint/H0.pvd')
+S_file = df.File(f'{results_dir}/adjoint/S.pvd')
+B_file = df.File(f'{results_dir}/adjoint/B.pvd')
+Bstd_file = df.File(f'{results_dir}/adjoint/Bstd.pvd')
+D_file = df.File(f'{results_dir}/adjoint/delta.pvd')
+U_file = df.File(f'{results_dir}/adjoint/U_s.pvd')
+
+
+Uobs_file = df.File(f'{results_dir}/adjoint/U_obs.pvd')
+Sobs_file = df.File(f'{results_dir}/adjoint/S_obs.pvd')
+log_beta_file = df.File(f'{results_dir}/adjoint/log_beta.pvd')
+adot_file = df.File(f'{results_dir}/adjoint/adot.pvd')
+adot0_file = df.File(f'{results_dir}/adjoint/adot0.pvd')
+misfit_file = df.File(f'{results_dir}/adjoint/misfit.pvd')
+
+output_H = df.Function(model.Q_thk,name='H')
+output_S = df.Function(model.Q_thk,name='S')
+output_f = df.Function(model.Q_thk,name='f')
+output_log_beta = df.Function(model.Q_cg1,name='log_beta')
+output_delta = df.Function(model.Q_thk,name='delta')
+output_misfit = df.Function(model.Q_thk,name='misfit')
+output_Bstd = df.Function(model.Q_thk,name='B_std')
+
 rho = 500.0
 surface_loss_weight = 1
 zero = torch.zeros_like(S_init)
@@ -307,6 +334,14 @@ def closure():
     for k in range(n_steps):
         Ubar,Udef,H0 = fm.apply(H0,B,beta2_ref,adot,Ubar,Udef,model,adjoint,0.0,50,solver_args)
 
+    if i%1==0:
+        output_H.dat.data[:] = H0.detach().numpy()
+        H0_file.write(output_H,time=tt)
+        adot0_file.write(model.adot,time=tt)
+        model.project_surface_velocity()
+        #model.U_s.dat.data[:]*=v_mask[:,np.newaxis]
+        U_file.write(model.U_s,time=tt)
+
     for k in range(n_hist_steps):
         Ubar,Udef,H0 = fm.apply(H0,B,beta2_ref,adot_hist[:,k],Ubar,Udef,model,adjoint,0.0,hist_length/n_hist_steps,solver_args)
     
@@ -317,6 +352,16 @@ def closure():
 
     S_count = 0
     U_count = torch.tensor(1e-10)
+
+    adot_series = df.File(f'{results_dir}/adjoint/adot_series.pvd')
+    U_series = df.File(f'{results_dir}/adjoint/U_series.pvd')
+    Uobs_series = df.File(f'{results_dir}/adjoint/Uobs_series.pvd')
+    surfs = []
+
+    U_series.write(model.U_s,time=0)
+    ui.U_obs.dat.data[:] = v_avg
+    Uobs_series.write(ui.U_obs,time=0)
+    adot_series.write(model.adot,time=0)
 
     for j,(U_obs,U_tau,data,y) in enumerate(zip(velocities,velocities_tau,surfaces,years)):
         #Ubar_init,Udef_init = inits[j]
@@ -367,6 +412,16 @@ def closure():
             #    L_surface_i*=9
             L_surface += L_surface_i
 
+            obs_coords = data['data']['x_obs'].numpy()
+            if y==2013:
+                x_obs = np.ascontiguousarray(obs_coords[:,0])[S_inds]
+                y_obs = np.ascontiguousarray(obs_coords[:,1])[S_inds]
+                z_obs = np.zeros_like(x_obs)
+            else:
+                x_obs = np.ascontiguousarray(obs_coords[:,0])
+                y_obs = np.ascontiguousarray(obs_coords[:,1])
+                z_obs = np.zeros_like(x_obs)
+            pyevtk.hl.pointsToVTK(f'{results_dir}/time_series/delta_{y}',x_obs,y_obs,z_obs,data={'elev':np.ascontiguousarray(S_pred.detach().numpy()),'misfit':np.ascontiguousarray((S_pred - S_obs).detach().numpy()),'obs':np.ascontiguousarray(S_obs.detach().numpy())})
 
             S_count += 1
         
@@ -383,16 +438,48 @@ def closure():
             L_velocity = L_velocity + L_velocity_i
             U_count += 1
         
+        model.project_surface_velocity()
+        #model.U_s.dat.data[:]*=v_mask[:,np.newaxis]
+        U_series.write(model.U_s,time=y)
+        Uobs_series.write(ui.U_obs,time=y)
+        adot_series.write(model.adot,time=y)        
+        surfs.append(S.detach().numpy())
+    
+    D_series = df.File(f'{results_dir}/adjoint/D_series.pvd')
+    for j,(S_tilde,y) in enumerate(zip(surfs,years)):
+        output_delta.dat.data[:] = S_tilde - surfs[years.index(2013)]
+        D_series.write(output_delta,time=y)
+
     L_prior = (z_B**2).sum() + (z_beta_ref**2).sum() + (z_beta_t**2).sum() + ((z_adot)**2).sum() + (z_nse**2).sum()
     if initialize:
         L_velocity = L_velocity/np.sqrt(U_count)
     else:
         L_velocity = L_velocity/np.sqrt(U_count)
 
-    L =  L_velocity + L_surface# + L_prior
+    L =  L_velocity + L_surface + L_prior
     dV_0 = ((area*adot).sum()/area.sum()).detach()
     dV_1 = ((area*adot_i).sum()/area.sum()).detach()
     print(i,L.item(),L_velocity.item(),L_surface.item(),L_prior.item(),dV_0.item(),dV_1.item(),adot.max().detach().item(),adot_i.max().detach().item())
+
+    if i%1==0:
+        output_H.dat.data[:] = H0.detach().numpy()
+        H_file.write(output_H,time=tt)
+
+        output_S.dat.data[:] = S.detach().numpy()
+        S_file.write(output_S,time=tt)
+
+        B_file.write(model.B,time=tt)
+
+        output_misfit.dat.data[:] = S.detach().numpy() - S_init.detach().numpy()
+        misfit_file.write(output_misfit,time=tt)
+
+        adot_file.write(model.adot,time=tt)
+
+    if initialize:
+        Ubar_steady.data[:] = Ubar.detach()
+        Udef_steady.data[:] = Udef.detach()
+        B_steady.data[:] = B.detach()
+        H_steady.data[:] = H0.detach()
 
     L.backward()
     
@@ -400,71 +487,19 @@ def closure():
     tt+=1
     return L
 
+lbfgs = torch.optim.LBFGS([z_B,z_beta_ref,z_adot],
+                    history_size=50,
+                    line_search_fn="strong_wolfe",max_iter=50)
 
-lbfgs = torch.optim.LBFGS([z_B,z_beta_ref,z_beta_t,z_adot,z_nse],
-                        history_size=50,
-                        line_search_fn="strong_wolfe")#,max_iter=1,max_eval=20)
-
-initdir = f'{data_dir}/{prefix}/time/states/'
-initfile = max(os.listdir(initdir))
-with open(f'{initdir}/{initfile}','rb') as fi:
-    data = pickle.load(fi)
-    z_beta_ref.data[:],z_beta_t.data[:],z_B.data[:],z_adot.data[:],z_nse.data[:] = data[:5]
-    Ubar_steady.data[:],Udef_steady.data[:],B_steady.data[:],H_steady.data[:] = [torch.from_numpy(x) for x in data[5]]
-
-i = 0 
-
-static_traction = False
+static_traction = True
 relative_surface_loss = False
-relative_velocity_loss = True
-
-closure()
-
-g1_B = torch.tensor(z_B.grad)
-g1_beta = torch.tensor(z_beta_ref.grad)
-g1_adot = torch.tensor(z_adot.grad)
-g1_nse = torch.tensor(z_nse.grad)
-g1 = torch.hstack((g1_B,g1_beta,g1_adot.ravel(),g1_nse.ravel()))
-
-n_B = g1_B.shape[0]
-n_beta = g1_beta.shape[0]
-n_adot = g1_adot.ravel().shape[0]
-n_nse = g1_nse.ravel().shape[0]
-
-z_B0 = torch.tensor(z_B.data[:])
-z_beta0 = torch.tensor(z_beta_ref.data[:])
-z_adot0 = torch.tensor(z_adot.data[:])
-z_nse0 = torch.tensor(z_nse.data[:])
-
-r = 1e-3
-n_samples = 100
-
-for l in range(3):
-
-    size = g1.shape[0]
-
-    Z = torch.randn(size,n_samples)
-    G = torch.zeros(size,n_samples)
-    Z_B = Z[:n_B]
-    Z_beta = Z[n_B:n_B + n_beta]
-    Z_adot = Z[n_B + n_beta:n_B + n_beta + n_adot]
-    Z_nse = Z[n_B + n_beta + n_adot:]
-    for ii in range(n_samples):
-        z_B.data[:] = z_B0 + r*Z_B[:,ii]
-        z_beta_ref.data[:] = z_beta0 + r*Z_beta[:,ii]
-        z_adot.data[:] = z_adot0 + r*Z_adot[:,ii].reshape((z_adot0.shape))
-        z_nse.data[:] = z_nse0 + r*Z_nse[:,ii].reshape((z_nse0.shape))
-        closure()
-        G[:n_B,ii] = torch.tensor(z_B.grad)
-        G[n_B:n_B+n_beta,ii] = torch.tensor(z_beta_ref.grad)
-        G[n_B+n_beta:n_B + n_beta + n_adot,ii] = torch.tensor(z_adot.grad.ravel())
-        G[n_B + n_beta + n_adot:,ii] = torch.tensor(z_nse.grad.ravel())
-
-    HVP = (G - g1.reshape(-1,1))/r
-    with open(f'{results_dir}/hvps/hvp_{l}.p','wb') as fi:
-        pickle.dump((G,g1,Z),fi)
+relative_velocity_loss = False
 
 
-    
+for q in range(0,3):
+    print(q)
+    lbfgs.step(closure)
+    i=0
 
-
+    with open(f'{results_dir}/states/state_{q:03d}.p','wb') as fi:
+        pickle.dump((z_beta_ref.detach(),z_beta_t.detach(),z_B.detach(),z_adot.detach(),z_nse.detach(),(Ubar_steady.detach().numpy(),Udef_steady.detach().numpy(),B_steady.detach().numpy(),H_steady.detach().numpy())),fi)
