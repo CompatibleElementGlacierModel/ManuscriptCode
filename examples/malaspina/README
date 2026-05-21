@@ -1,0 +1,24 @@
+To reproduce the results of `The demise of the world's largest piedmont glacier' by Brinkerhoff et al., take the following steps.
+
+1. Go to https://zenodo.org/records/15028564 or to https://github.com/CompatibleElementGlacierModel/ManuscriptCode, and download the version of the SpecEIS glacier dynamics model found there (and its dependencies).
+
+2. Place this directory (malaspina) in SpecEIS's examples directory.
+
+3. Run the scripts in 'preprocessing' in the following order.  These generate a) the model's mesh; b) maps from whitened parameters to physical model parameters (i.e. bed, log_beta, smb); and 3) maps from model predictions to observations (velocity and surface elevation at points).  
+
+mesh_boundary.py
+build_bed.py
+build_surface.py
+build_adot.py
+build_beta.py
+build_velocity.py
+
+4. Perform steady state inference as an initial guess.  This finds a bed, average beta, and surface mass balance such that the model is both in steady state and agrees with available observations c. 2012.  To do this, navigate to the malaspina/inference directory and run inference_steady.py.  This will take approximately 1 hour to run.  Model results can be visualized easily in paraview from the meshes/v1/init/adjoint directory.
+
+5. Perform time-dependent inference using the result from previous as an initial guess.  This finds a bed, time-dependent beta, and time-dependent surface mass balance such that the model trajectory over the observational period is consistent with observations at relevant times.  To do this, run inference_time.py.  This will take approximately 8 hours to run.  Model results can be visualized in paraview from the meshes/v1/time/adjoint directory.
+
+6. Perform uncertainty quantification.  This runs simulations on perturbed parameter values and takes their gradients to compute approximations to the Hessian-vector product of the cost function.  These will be used for uncertainty quantification.  To do this, run inference/sample_hvp.py.  This will take approximately 24 hours to run.  The resulting data is stored in meshes/v1/uncertainty_quantification/hvps
+
+7. Perform ensemble simulations.  Construct 25 member, 300 year ensembles based on parameters drawn from the Laplace-approximated posterior distribution for each of the 4 experiments (calving on/off, frozen/projected smb).  To do this, run inference/run_all.py.  These runs are checkpointed at various times, and can be visualized via paraview in meshes/v1/ensemble.  Individual ensemble experiments can be run via inference/forward.py.
+
+8. Plot all of the figures from the manuscript.  After previous runs are complete, navigate to postprocessing and run postprocessing/run_all.py.

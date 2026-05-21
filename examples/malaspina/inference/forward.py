@@ -49,13 +49,13 @@ data_dir = '../meshes/mesh_2200/'
 prefix = 'v1'
 
 if calving and freeze_climate:
-    results_dir = f'{data_dir}/{prefix}/ensemble_linear/frozen_climate_calve/'
+    results_dir = f'{data_dir}/{prefix}/ensemble/frozen_climate_calve/'
 elif not calving and freeze_climate:
-    results_dir = f'{data_dir}/{prefix}/ensemble_linear/frozen_climate_no_calve/'
+    results_dir = f'{data_dir}/{prefix}/ensembler/frozen_climate_no_calve/'
 elif not calving and not freeze_climate:
-    results_dir = f'{data_dir}/{prefix}/ensemble_linear/projected_climate_no_calve/'
+    results_dir = f'{data_dir}/{prefix}/ensemble/projected_climate_no_calve/'
 elif calving and not freeze_climate:
-    results_dir = f'{data_dir}/{prefix}/ensemble_linear/projected_climate_calve/'
+    results_dir = f'{data_dir}/{prefix}/ensemble/projected_climate_calve/'
 else:
     raise Exception("not a valid ensemble option")
 

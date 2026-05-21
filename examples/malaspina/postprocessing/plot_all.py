@@ -56,7 +56,7 @@ X_loc = np.array([ 743600.34864157, 1204809.11692685])
 data_dir = '../meshes/mesh_2200/'
 prefix = 'v1'
 results_dir = f'{data_dir}/{prefix}/' 
-ensemble_dir = 'ensemble_linear'
+ensemble_dir = 'ensemble'
 experiment_type = 'frozen_climate_calve'
 sample_dir = f'{data_dir}/{prefix}/uncertainty/'
 
