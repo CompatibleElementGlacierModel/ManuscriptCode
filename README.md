@@ -6,8 +6,7 @@
 This repository contains the code necessary to reproduce the results of the paper "Compatible Finite Elements For Glacier Modeling" by Douglas Brinkerhoff appearing in Computation in Science and Engineering.  The mathematical details of the model appear in the PDF that lives in the repository's main directory, but the highlights of the model are as follows:
  - Firedrake/Python implementation of the Blatter-Pattyn, Shallow Ice, and Shallow Shelf approximations coupled to the continuity equation using Raviart-Thomas-DG0 and Mardal-Tai-Winther-DG0 elements, which exhibit several desirable properties, including local and global mass conservation, monotonicity in the presence of steep solution gradients, and predictable accuracy under mesh refinement
  - Examples highlighting the application of this model to several synthetic examples and one realistic one.  In particular, we hope that the Bear Creek example will give users sufficient guidance for how this model might be applied to their own glacier of choice.  
-
-**Note that this library remains experimental, and should be treated as an Alpha release.**
+ - The examples/malaspina example also provides the utilities necessary to reproduce `Demise of the world's largest piedmont glacier' by Brinkerhoff et al.
 
 ![](./images/bearcreek_fields.png)
 
