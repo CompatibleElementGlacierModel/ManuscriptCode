@@ -50,6 +50,10 @@ p3h1_d = p3h1_w/p3h1_v*1000
 p1_xy = np.array([60.381139,-140.277101,1651])
 p2_xy = np.array([60.387577,-140.292982,1653])
 p3_xy = np.array([60.375174,-140.245856,1641])
+p1_date = '2023-05-14'
+p2_date = '2023-05-16'
+p3_data = '2023-05-17'
+
 
 p1_dict = {'coordinates':p1_xy,
            'pit_wall':{ 'bounds': p1_z,
